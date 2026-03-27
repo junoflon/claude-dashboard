@@ -223,17 +223,17 @@ async function sendMessage(sid, cwd) {
   sendBtn.disabled = true;
 
   // Add user message
-  chatBody.innerHTML += `<div class="msg user">
+  chatBody.insertAdjacentHTML('beforeend', `<div class="msg user">
     <div class="msg-role">You</div>
     <div class="msg-text">${escapeHtml(prompt)}</div>
-  </div>`;
+  </div>`);
 
   // Add streaming response placeholder
   const responseId = 'resp-' + Date.now();
-  chatBody.innerHTML += `<div class="msg assistant" id="${responseId}">
+  chatBody.insertAdjacentHTML('beforeend', `<div class="msg assistant" id="${responseId}">
     <div class="msg-role">Claude</div>
     <div class="msg-text"><span class="typing-indicator"><div class="spinner"></div> 응답 생성중...</span></div>
-  </div>`;
+  </div>`);
   chatBody.scrollTop = chatBody.scrollHeight;
 
   try {
@@ -242,6 +242,12 @@ async function sendMessage(sid, cwd) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ cwd, prompt, sessionId: sid })
     });
+
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`HTTP ${res.status}: ${errText}`);
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
