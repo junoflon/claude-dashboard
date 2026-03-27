@@ -1,0 +1,12 @@
+{
+  "name": "claude-dashboard",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "sync": "node sync.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
