@@ -116,25 +116,14 @@ function getSessionStatus(sessionId) {
         } catch {}
       }
 
-      // Determine status based on last file modification and last entry type
       const lastModifiedAgo = Date.now() - lastActivity;
-      const lastEntry = (() => { try { return JSON.parse(lines[lines.length - 1]); } catch { return {}; } })();
 
-      if (lastModifiedAgo < 30_000) {
-        // File modified in last 30s → actively working
-        status = lastEntry.type === 'user' ? 'waiting' : 'working';
-      } else if (lastModifiedAgo < 300_000) {
-        // Modified in last 5 min
-        status = 'idle';
-      } else {
-        status = 'idle';
-      }
-
-      // Unique tools summary
+      // Status will be determined later by process detection (see getProcessStatus)
+      // For now just collect data
       const toolSummary = [...new Set(toolsUsed.slice(-20))];
 
       return {
-        status,
+        status: 'idle', // overridden by getProcessStatus
         lastAction,
         lastUserMessage,
         lastActivityAgo: lastModifiedAgo,
@@ -146,6 +135,37 @@ function getSessionStatus(sessionId) {
     } catch {}
   }
   return null;
+}
+
+// Detect real status via process CPU + child processes
+function getProcessStatus(pid) {
+  try {
+    const cpu = parseFloat(execSync(`ps -p ${pid} -o %cpu= 2>/dev/null`, { encoding: 'utf8' }).trim()) || 0;
+    const childPids = execSync(`pgrep -P ${pid} 2>/dev/null`, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+    const children = childPids.length;
+
+    let childCmds = [];
+    if (children > 0) {
+      try {
+        childCmds = childPids.map(cp =>
+          execSync(`ps -p ${cp} -o comm= 2>/dev/null`, { encoding: 'utf8' }).trim()
+        ).filter(Boolean);
+      } catch {}
+    }
+
+    // Determine status
+    // caffeinate alone doesn't count as "working" - it's just keeping the mac awake
+    const meaningfulChildren = childCmds.filter(c => c !== 'caffeinate');
+
+    if (cpu > 5 || meaningfulChildren.length > 0) {
+      return { status: 'working', cpu, children, childCmds: meaningfulChildren };
+    } else if (cpu > 0.5) {
+      return { status: 'waiting', cpu, children, childCmds: [] };
+    }
+    return { status: 'idle', cpu, children: 0, childCmds: [] };
+  } catch {
+    return { status: 'idle', cpu: 0, children: 0, childCmds: [] };
+  }
 }
 
 function getGlobalHistory() {
@@ -161,13 +181,19 @@ async function sync() {
   try {
     const sessions = getActiveSessions();
     const enriched = sessions.map(s => {
-      const sessionStatus = getSessionStatus(s.sessionId);
+      const sessionStatus = getSessionStatus(s.sessionId) || {};
+      const procStatus = getProcessStatus(s.pid);
+
       return {
         ...s,
         projectName: path.basename(s.cwd),
         git: getGitInfo(s.cwd),
         uptime: Date.now() - s.startedAt,
-        ...(sessionStatus || {})
+        ...sessionStatus,
+        // Process-based status overrides JSONL-based
+        status: procStatus.status,
+        cpu: procStatus.cpu,
+        childProcesses: procStatus.childCmds,
       };
     });
     const history = getGlobalHistory();

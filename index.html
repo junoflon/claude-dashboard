@@ -260,6 +260,8 @@ function renderSession(s) {
         <span class="pulse"></span>
         ${statusLabel(status)}
       </span>
+      ${s.cpu > 1 ? `<div style="font-size:10px;color:#6e7681;margin-top:3px">CPU ${s.cpu.toFixed(1)}%</div>` : ''}
+      ${s.childProcesses?.length ? `<div style="font-size:10px;color:#da7756;margin-top:2px">${s.childProcesses.map(esc).join(', ')}</div>` : ''}
     </td>
     <td>
       <div class="project-name">${esc(s.projectName)}</div>
