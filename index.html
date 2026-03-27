@@ -6,501 +6,351 @@
 <title>Claude Dashboard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0d1117; color: #c9d1d9; min-height: 100vh;
-  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+
   .header {
-    background: linear-gradient(135deg, #161b22, #1a1f2b);
-    border-bottom: 1px solid #30363d; padding: 16px 32px;
+    background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 28px;
     display: flex; align-items: center; justify-content: space-between;
     position: sticky; top: 0; z-index: 100;
   }
-  .header h1 { font-size: 20px; font-weight: 600; color: #f0f6fc; }
+  .header h1 { font-size: 18px; font-weight: 600; color: #f0f6fc; }
   .header h1 span { color: #da7756; }
-  .header-meta { font-size: 13px; color: #8b949e; display: flex; gap: 16px; align-items: center; }
-  .refresh-btn {
-    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-    padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
-  }
-  .refresh-btn:hover { background: #30363d; border-color: #da7756; }
+  .header-right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #6e7681; }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; display: inline-block; }
+  .sync-dot.stale { background: #d29922; }
+  .sync-dot.offline { background: #f85149; }
 
-  .main { padding: 20px 32px; }
-  .summary-bar { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
-  .summary-item {
+  .main { padding: 20px 28px; }
+
+  /* Summary cards */
+  .summary { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+  .stat {
     background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-    padding: 12px 18px; min-width: 120px;
+    padding: 14px 20px; min-width: 130px; flex: 1;
   }
-  .summary-item .num { font-size: 24px; font-weight: 700; color: #f0f6fc; }
-  .summary-item .label { font-size: 11px; color: #8b949e; }
+  .stat .num { font-size: 28px; font-weight: 700; color: #f0f6fc; }
+  .stat .label { font-size: 11px; color: #8b949e; margin-top: 2px; }
+  .stat.working .num { color: #3fb950; }
+  .stat.idle .num { color: #8b949e; }
 
-  .section-title {
-    font-size: 13px; font-weight: 600; color: #8b949e;
-    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
+  /* Session table */
+  .table-wrap {
+    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+    overflow: hidden; margin-bottom: 24px;
   }
-  .grid {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
-    gap: 16px; margin-bottom: 28px;
+  .table-title {
+    padding: 12px 16px; font-size: 13px; font-weight: 600; color: #8b949e;
+    border-bottom: 1px solid #21262d; text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .card {
-    background: #161b22; border: 1px solid #30363d;
-    border-radius: 10px; overflow: hidden;
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; padding: 10px 16px; font-size: 11px; font-weight: 600;
+    color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid #21262d; background: #0d111780;
   }
-  .card:hover { border-color: #da775680; }
-  .card-top { padding: 16px 18px 12px; }
-  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-  .project-name { font-size: 16px; font-weight: 600; color: #f0f6fc; }
-  .cwd { font-size: 10px; color: #6e7681; font-family: monospace; word-break: break-all; margin-top: 2px; }
-  .badge { font-size: 10px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
-  .badge.active { background: #23863620; color: #3fb950; border: 1px solid #23863640; }
-  .info-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8b949e; margin-bottom: 5px; }
-  .info-row .label { min-width: 50px; color: #6e7681; font-size: 11px; }
-  .info-row .value { color: #c9d1d9; }
-  .branch-tag { background: #1f2937; color: #79c0ff; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; }
-  .commit-hash { color: #da7756; font-family: monospace; font-size: 11px; }
+  td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: #1c2128; }
 
-  .action-bar { display: flex; gap: 6px; margin-top: 10px; }
-  .action-btn {
-    background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
-    padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px;
   }
-  .action-btn:hover { background: #30363d; border-color: #da7756; }
-  .action-btn.kill { color: #f85149; }
-  .action-btn.kill:hover { border-color: #f85149; background: #f8514910; }
+  .status-badge.working { background: #23863620; color: #3fb950; }
+  .status-badge.waiting { background: #d2992220; color: #d29922; }
+  .status-badge.idle { background: #484f5820; color: #8b949e; }
+  .status-badge .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
+  }
+  .status-badge.working .pulse { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-  /* Chat area */
-  .chat-wrap {
-    border-top: 1px solid #30363d; background: #0d1117;
-  }
-  .chat-header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 6px 12px; background: #161b22; border-bottom: 1px solid #21262d;
-    cursor: pointer; user-select: none;
-  }
-  .chat-header .title { font-size: 11px; color: #8b949e; font-weight: 600; }
-  .chat-header .toggle { font-size: 10px; color: #6e7681; }
-  .chat-body {
-    height: 400px; overflow-y: auto; padding: 12px;
-  }
-  .chat-body.collapsed { display: none; }
+  .project-name { font-weight: 600; color: #f0f6fc; }
+  .project-path { font-size: 10px; color: #6e7681; font-family: monospace; margin-top: 2px; }
+  .branch { background: #1f2937; color: #79c0ff; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; }
+  .commit-info { font-size: 11px; color: #8b949e; }
+  .commit-hash { color: #da7756; font-family: monospace; }
+  .changed-count { color: #d29922; font-weight: 600; }
 
-  .msg { margin-bottom: 12px; }
-  .msg .msg-role {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.5px; margin-bottom: 3px;
+  .last-action {
+    font-size: 12px; color: #c9d1d9; max-width: 300px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .msg.user .msg-role { color: #79c0ff; }
-  .msg.assistant .msg-role { color: #da7756; }
-  .msg .msg-text {
-    white-space: pre-wrap; word-break: break-word; color: #c9d1d9;
-    font-size: 13px; line-height: 1.6;
-    padding: 8px 12px; border-radius: 8px;
+  .last-user-msg {
+    font-size: 11px; color: #79c0ff; margin-top: 4px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;
   }
-  .msg.user .msg-text { background: #1f293780; border-left: 3px solid #79c0ff40; }
-  .msg.assistant .msg-text { background: #21262d80; border-left: 3px solid #da775640; }
-
-  .msg-divider {
-    text-align: center; font-size: 10px; color: #484f58; margin: 16px 0;
-    display: flex; align-items: center; gap: 8px;
+  .tools-used {
+    display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
   }
-  .msg-divider::before, .msg-divider::after { content: ''; flex: 1; height: 1px; background: #21262d; }
-
-  .chat-input-wrap {
-    display: flex; border-top: 1px solid #21262d; background: #0d1117;
-  }
-  .chat-input-wrap.collapsed { display: none; }
-  .chat-input {
-    flex: 1; background: transparent; border: none; color: #f0f6fc;
-    padding: 10px 14px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 13px; outline: none; resize: none; min-height: 42px; max-height: 120px;
-  }
-  .chat-input::placeholder { color: #484f58; }
-  .chat-send {
-    background: #da7756; color: #fff; border: none;
-    padding: 10px 18px; cursor: pointer; font-size: 13px; font-weight: 600;
-  }
-  .chat-send:hover { background: #e8896a; }
-  .chat-send:disabled { background: #484f58; cursor: not-allowed; }
-
-  .typing-indicator {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 11px; color: #da7756; padding: 4px 0;
-  }
-  .typing-indicator .spinner {
-    width: 12px; height: 12px; border: 2px solid #30363d;
-    border-top-color: #da7756; border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @keyframes blink { 50% { opacity: 0; } }
-  .cursor-blink {
-    display: inline-block; width: 2px; height: 14px;
-    background: #da7756; animation: blink 1s step-end infinite;
-    vertical-align: text-bottom; margin-left: 1px;
+  .tool-tag {
+    font-size: 9px; padding: 1px 6px; border-radius: 4px;
+    background: #21262d; color: #8b949e; font-family: monospace;
   }
 
-  .timeline {
-    background: #161b22; border: 1px solid #30363d;
-    border-radius: 10px; padding: 16px; margin-bottom: 28px;
+  .time-ago { font-size: 11px; color: #6e7681; }
+  .uptime { font-size: 11px; color: #6e7681; }
+  .msg-count { font-size: 11px; color: #6e7681; }
+
+  /* Recent activity */
+  .activity-wrap {
+    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+    overflow: hidden;
   }
-  .timeline-item {
-    display: flex; gap: 10px; padding: 5px 0;
-    border-bottom: 1px solid #21262d; font-size: 12px;
+  .activity-item {
+    display: flex; gap: 12px; padding: 8px 16px; border-bottom: 1px solid #21262d;
+    font-size: 12px; align-items: center;
   }
-  .timeline-item:last-child { border-bottom: none; }
-  .timeline-time { min-width: 70px; color: #6e7681; font-size: 11px; }
-  .timeline-project { color: #da7756; min-width: 100px; font-weight: 600; font-size: 11px; }
-  .timeline-text { color: #c9d1d9; }
-  .empty-state { text-align: center; padding: 30px; color: #6e7681; font-size: 13px; }
+  .activity-item:last-child { border-bottom: none; }
+  .activity-time { min-width: 60px; color: #6e7681; font-size: 11px; }
+  .activity-project { color: #da7756; font-weight: 600; min-width: 100px; font-size: 11px; }
+  .activity-text { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .empty { text-align: center; padding: 40px; color: #6e7681; font-size: 13px; }
+
+  /* Detail panel */
+  .detail-row { display: none; }
+  .detail-row.open { display: table-row; }
+  .detail-row td { padding: 0; }
+  .detail-content {
+    padding: 12px 16px; background: #0d111780;
+  }
+  .detail-section { margin-bottom: 12px; }
+  .detail-section-title { font-size: 11px; font-weight: 600; color: #6e7681; margin-bottom: 6px; text-transform: uppercase; }
+  .action-item {
+    font-size: 12px; padding: 4px 0; display: flex; gap: 8px; align-items: baseline;
+  }
+  .action-item .action-type { font-size: 10px; font-weight: 600; min-width: 50px; }
+  .action-item .action-type.tool { color: #da7756; }
+  .action-item .action-type.msg { color: #3fb950; }
+  .action-item .action-detail { color: #c9d1d9; }
+  .file-list { font-size: 11px; font-family: monospace; }
+  .file-list div { padding: 2px 0; }
+  .file-status { display: inline-block; width: 14px; font-weight: 700; }
+  .file-status.M { color: #d29922; }
+  .file-status.A { color: #3fb950; }
+  .file-status.D { color: #f85149; }
+  .file-status.Q { color: #f85149; }
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1><span>Claude</span> Dashboard</h1>
-  <div class="header-meta">
-    <span id="lastUpdate" style="font-size:11px;color:#6e7681;"></span>
-    <button class="refresh-btn" onclick="refresh()">새로고침</button>
+  <div class="header-right">
+    <span class="sync-dot" id="syncDot"></span>
+    <span id="syncStatus">연결 중...</span>
+    <span id="lastUpdate"></span>
   </div>
 </div>
 
 <div class="main">
-  <div class="summary-bar" id="summaryBar"></div>
-  <div class="section-title">프로젝트</div>
-  <div class="grid" id="activeGrid"></div>
-  <div class="section-title">최근 활동</div>
-  <div class="timeline" id="timeline"></div>
+  <div class="summary" id="summary"></div>
+
+  <div class="table-wrap">
+    <div class="table-title">세션 현황</div>
+    <table>
+      <thead>
+        <tr>
+          <th>상태</th>
+          <th>프로젝트</th>
+          <th>브랜치</th>
+          <th>최근 작업</th>
+          <th>변경</th>
+          <th>활동</th>
+          <th>Uptime</th>
+        </tr>
+      </thead>
+      <tbody id="sessionTable"></tbody>
+    </table>
+  </div>
+
+  <div class="activity-wrap">
+    <div class="table-title">최근 활동 타임라인</div>
+    <div id="activityList"></div>
+  </div>
 </div>
 
 <script>
-const existingCards = new Set();
-const busySessions = new Set(); // sessions currently awaiting claude response
+function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/'/g,'&#39;');
+function timeAgo(ms) {
+  if (ms < 10000) return '방금';
+  if (ms < 60000) return `${Math.floor(ms/1000)}초 전`;
+  if (ms < 3600000) return `${Math.floor(ms/60000)}분 전`;
+  if (ms < 86400000) return `${Math.floor(ms/3600000)}시간 전`;
+  return `${Math.floor(ms/86400000)}일 전`;
 }
+
 function formatUptime(ms) {
-  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
-function formatTime(ts) {
-  const diff = Date.now() - ts;
-  if (diff < 60000) return '방금';
-  if (diff < 3600000) return `${Math.floor(diff/60000)}분 전`;
-  if (diff < 86400000) return `${Math.floor(diff/3600000)}시간 전`;
-  return `${Math.floor(diff/86400000)}일 전`;
+
+function statusLabel(s) {
+  const map = { working: '작업 중', waiting: '대기 중', idle: '대기' };
+  return map[s] || s || 'idle';
 }
 
-async function doAction(action, cwd, pid) {
-  await fetch('/api/action', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, cwd, pid })
-  });
+function toggleDetail(sid) {
+  const row = document.getElementById('detail-' + sid);
+  if (row) row.classList.toggle('open');
 }
 
-async function killSession(pid, sid) {
-  if (!confirm('이 세션을 종료하시겠습니까?')) return;
-  await doAction('kill', null, pid);
-  const el = document.getElementById('card-' + sid);
-  if (el) el.remove();
-  existingCards.delete(sid);
-}
+function renderSession(s) {
+  const status = s.status || 'idle';
+  const git = s.git;
 
-// ── Send message to Claude ──
-async function sendMessage(sid, cwd) {
-  const input = document.getElementById('input-' + sid);
-  const chatBody = document.getElementById('chat-body-' + sid);
-  const sendBtn = document.getElementById('send-' + sid);
-  const prompt = input.value.trim();
-  if (!prompt || busySessions.has(sid)) return;
+  let mainRow = `<tr onclick="toggleDetail('${s.sessionId}')" style="cursor:pointer">
+    <td>
+      <span class="status-badge ${status}">
+        <span class="pulse"></span>
+        ${statusLabel(status)}
+      </span>
+    </td>
+    <td>
+      <div class="project-name">${esc(s.projectName)}</div>
+      <div class="project-path">${esc(s.cwd)}</div>
+    </td>
+    <td>${git ? `<span class="branch">${esc(git.branch)}</span>` : '-'}</td>
+    <td>
+      <div class="last-action">${esc(s.lastAction || '-')}</div>
+      ${s.lastUserMessage ? `<div class="last-user-msg">"${esc(s.lastUserMessage)}"</div>` : ''}
+      ${s.toolSummary?.length ? `<div class="tools-used">${s.toolSummary.map(t => `<span class="tool-tag">${esc(t)}</span>`).join('')}</div>` : ''}
+    </td>
+    <td>${git?.changedFiles?.length ? `<span class="changed-count">${git.changedFiles.length}개</span>` : '<span style="color:#6e7681">-</span>'}</td>
+    <td><span class="time-ago">${timeAgo(s.lastActivityAgo || s.uptime)}</span></td>
+    <td><span class="uptime">${formatUptime(s.uptime)}</span></td>
+  </tr>`;
 
-  busySessions.add(sid);
-  input.value = '';
-  input.disabled = true;
-  sendBtn.disabled = true;
+  // Detail row (hidden by default, toggled on click)
+  let detailHtml = '<div class="detail-content">';
 
-  // Add user message
-  chatBody.insertAdjacentHTML('beforeend', `<div class="msg user">
-    <div class="msg-role">You</div>
-    <div class="msg-text">${escapeHtml(prompt)}</div>
-  </div>`);
-
-  // Add streaming response placeholder
-  const responseId = 'resp-' + Date.now();
-  chatBody.insertAdjacentHTML('beforeend', `<div class="msg assistant" id="${responseId}">
-    <div class="msg-role">Claude</div>
-    <div class="msg-text"><span class="typing-indicator"><div class="spinner"></div> 응답 생성중...</span></div>
-  </div>`);
-  chatBody.scrollTop = chatBody.scrollHeight;
-
-  try {
-    const res = await fetch('/api/claude', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cwd, prompt, sessionId: sid })
-    });
-
-    if (res.status === 401) { window.location.href = '/login'; return; }
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`HTTP ${res.status}: ${errText}`);
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-    let started = false;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      for (const line of chunk.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const event = JSON.parse(line.substring(6));
-          if (event.type === 'text') {
-            if (!started) { started = true; }
-            fullText += event.text;
-            const respEl = document.getElementById(responseId);
-            if (respEl) {
-              respEl.querySelector('.msg-text').innerHTML =
-                escapeHtml(fullText) + '<span class="cursor-blink"></span>';
-            }
-            chatBody.scrollTop = chatBody.scrollHeight;
-          } else if (event.type === 'done') {
-            const respEl = document.getElementById(responseId);
-            if (respEl) {
-              respEl.querySelector('.msg-text').innerHTML =
-                escapeHtml(fullText) || '<span style="color:#6e7681">(빈 응답)</span>';
-            }
-          } else if (event.type === 'error') {
-            const respEl = document.getElementById(responseId);
-            if (respEl) {
-              respEl.querySelector('.msg-text').innerHTML =
-                `<span style="color:#f85149">오류: ${escapeHtml(event.text)}</span>`;
-            }
-          }
-        } catch {}
-      }
-    }
-
-    // Final cleanup - remove cursor
-    const respEl = document.getElementById(responseId);
-    if (respEl) {
-      const cursor = respEl.querySelector('.cursor-blink');
-      if (cursor) cursor.remove();
-      if (!fullText) {
-        respEl.querySelector('.msg-text').innerHTML = '<span style="color:#6e7681">(빈 응답)</span>';
-      }
-    }
-
-  } catch (e) {
-    const respEl = document.getElementById(responseId);
-    if (respEl) {
-      respEl.querySelector('.msg-text').innerHTML =
-        `<span style="color:#f85149">연결 실패: ${escapeHtml(e.message)}</span>`;
-    }
-  }
-
-  busySessions.delete(sid);
-  input.disabled = false;
-  sendBtn.disabled = false;
-  input.focus();
-  chatBody.scrollTop = chatBody.scrollHeight;
-}
-
-function handleInputKey(e, sid, cwd) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage(sid, cwd);
-  }
-}
-
-function toggleChat(sid) {
-  const body = document.getElementById('chat-body-' + sid);
-  const input = document.getElementById('chat-input-wrap-' + sid);
-  const toggle = document.getElementById('chat-toggle-' + sid);
-  if (!body) return;
-  const collapsed = body.classList.toggle('collapsed');
-  input.classList.toggle('collapsed', collapsed);
-  toggle.textContent = collapsed ? '[ 펼치기 ]' : '[ 접기 ]';
-  if (!collapsed) {
-    const inputEl = document.getElementById('input-' + sid);
-    if (inputEl) setTimeout(() => inputEl.focus(), 100);
-    body.scrollTop = body.scrollHeight;
-  }
-}
-
-// ── Card rendering ──
-function renderCardInfo(session) {
-  const git = session.git;
-  let html = `<div class="card-header">
-      <div>
-        <div class="project-name">${escapeHtml(session.projectName)}</div>
-        <div class="cwd">${escapeHtml(session.cwd)}</div>
-      </div>
-      <span class="badge active">ACTIVE</span>
-    </div>
-    <div class="info-row">
-      <span class="label">Uptime</span>
-      <span class="value">${formatUptime(session.uptime)}</span>
-      <span style="color:#6e7681;font-size:10px;margin-left:8px">PID: ${session.pid}</span>
-    </div>`;
-
+  // Git info
   if (git) {
-    html += `<div class="info-row">
-        <span class="label">Branch</span>
-        <span class="branch-tag">${escapeHtml(git.branch)}</span>
-      </div>
-      <div class="info-row">
-        <span class="label">Commit</span>
-        <span class="value">
-          <span class="commit-hash">${escapeHtml(git.lastCommit.hash)}</span>
-          ${escapeHtml(git.lastCommit.subject)}
-          <span style="color:#6e7681;font-size:10px">(${escapeHtml(git.lastCommit.relTime)})</span>
-        </span>
-      </div>`;
-    if (git.changedFiles.length > 0) {
-      html += `<div class="info-row"><span class="label">변경</span>
-        <span class="value" style="color:#d29922">${git.changedFiles.length}개 파일</span></div>`;
+    detailHtml += `<div class="detail-section">
+      <div class="detail-section-title">Git</div>
+      <div class="commit-info"><span class="commit-hash">${esc(git.lastCommit?.hash)}</span> ${esc(git.lastCommit?.subject)} <span style="color:#6e7681">(${esc(git.lastCommit?.relTime)})</span></div>
+      ${git.totalCommitsToday ? `<div style="font-size:11px;color:#8b949e;margin-top:2px">오늘 커밋: ${git.totalCommitsToday}개</div>` : ''}
+    </div>`;
+
+    if (git.changedFiles?.length) {
+      detailHtml += `<div class="detail-section">
+        <div class="detail-section-title">변경된 파일 (${git.changedFiles.length})</div>
+        <div class="file-list">`;
+      for (const f of git.changedFiles.slice(0, 10)) {
+        const sc = f.status.charAt(0) === '?' ? 'Q' : f.status.charAt(0);
+        detailHtml += `<div><span class="file-status ${sc}">${esc(f.status)}</span> ${esc(f.file)}</div>`;
+      }
+      if (git.changedFiles.length > 10) detailHtml += `<div style="color:#6e7681">+${git.changedFiles.length - 10}개 더</div>`;
+      detailHtml += `</div></div>`;
     }
   }
 
-  html += `<div class="action-bar">
-      <button class="action-btn" onclick="doAction('vscode','${escapeHtml(session.cwd)}')">VS Code</button>
-      <button class="action-btn" onclick="doAction('finder','${escapeHtml(session.cwd)}')">Finder</button>
-      <button class="action-btn kill" onclick="killSession(${session.pid},'${session.sessionId}')">세션 종료</button>
-    </div>`;
-  return html;
-}
-
-async function loadHistory(sessionId, chatBodyId) {
-  try {
-    const res = await fetch(`/api/history?sessionId=${encodeURIComponent(sessionId)}`);
-    const history = await res.json();
-    const container = document.getElementById(chatBodyId);
-    if (!container || !history.length) return;
-
-    let html = '<div class="msg-divider">이전 대화 기록</div>';
-    for (const entry of history) {
-      const roleLabel = entry.role === 'user' ? 'You' : 'Claude';
-      let text = entry.text;
-      if (text.length > 800) text = text.substring(0, 800) + '\n... (생략)';
-      html += `<div class="msg ${entry.role}">
-        <div class="msg-role">${roleLabel}</div>
-        <div class="msg-text">${escapeHtml(text)}</div>
-      </div>`;
+  // Recent actions
+  if (s.recentActions?.length) {
+    detailHtml += `<div class="detail-section">
+      <div class="detail-section-title">최근 작업 내역</div>`;
+    for (const a of s.recentActions.slice().reverse()) {
+      if (a.type === 'tool') {
+        detailHtml += `<div class="action-item">
+          <span class="action-type tool">${esc(a.name)}</span>
+          <span class="action-detail">${esc(a.detail)}</span>
+        </div>`;
+      } else {
+        detailHtml += `<div class="action-item">
+          <span class="action-type msg">응답</span>
+          <span class="action-detail">${esc(a.text)}</span>
+        </div>`;
+      }
     }
-    html += '<div class="msg-divider">여기서부터 새 대화</div>';
-
-    container.insertAdjacentHTML('afterbegin', html);
-    container.scrollTop = container.scrollHeight;
-  } catch (e) {
-    console.error('Failed to load history:', e);
+    detailHtml += `</div>`;
   }
-}
 
-function createCard(session) {
-  const sid = session.sessionId;
-  const card = document.createElement('div');
-  card.className = 'card';
-  card.id = 'card-' + sid;
+  // Stats
+  detailHtml += `<div class="detail-section">
+    <div class="detail-section-title">통계</div>
+    <div class="msg-count">메시지: 사용자 ${s.messageCount?.user || 0} / Claude ${s.messageCount?.assistant || 0} | PID: ${s.pid}</div>
+  </div>`;
 
-  const top = document.createElement('div');
-  top.className = 'card-top';
-  top.id = 'card-top-' + sid;
-  top.innerHTML = renderCardInfo(session);
-  card.appendChild(top);
+  detailHtml += '</div>';
 
-  const chatWrap = document.createElement('div');
-  chatWrap.className = 'chat-wrap';
-  chatWrap.innerHTML = `
-    <div class="chat-header" onclick="toggleChat('${sid}')">
-      <div class="title">Claude Code</div>
-      <span class="toggle" id="chat-toggle-${sid}">[ 접기 ]</span>
-    </div>
-    <div class="chat-body" id="chat-body-${sid}"></div>
-    <div class="chat-input-wrap" id="chat-input-wrap-${sid}">
-      <textarea class="chat-input" id="input-${sid}"
-        placeholder="메시지를 입력하세요... (Enter: 전송, Shift+Enter: 줄바꿈)"
-        onkeydown="handleInputKey(event, '${sid}', '${escapeHtml(session.cwd)}')"></textarea>
-      <button class="chat-send" id="send-${sid}"
-        onclick="sendMessage('${sid}', '${escapeHtml(session.cwd)}')">전송</button>
-    </div>`;
-  card.appendChild(chatWrap);
+  const detailRow = `<tr class="detail-row" id="detail-${s.sessionId}"><td colspan="7">${detailHtml}</td></tr>`;
 
-  // Load conversation history
-  loadHistory(sid, 'chat-body-' + sid);
-
-  return card;
-}
-
-function renderTimeline(history) {
-  if (!history || history.length === 0) return '<div class="empty-state">최근 활동 없음</div>';
-  let html = '';
-  for (const item of history.slice().reverse().slice(0, 12)) {
-    const projectName = item.project ? item.project.split('/').pop() : '?';
-    html += `<div class="timeline-item">
-      <span class="timeline-time">${formatTime(item.timestamp)}</span>
-      <span class="timeline-project">${escapeHtml(projectName)}</span>
-      <span class="timeline-text">${escapeHtml(item.display)}</span>
-    </div>`;
-  }
-  return html;
+  return mainRow + detailRow;
 }
 
 async function refresh() {
   try {
     const res = await fetch('/api/dashboard');
+    if (res.status === 401) { window.location.href = '/login'; return; }
     const data = await res.json();
 
-    document.getElementById('summaryBar').innerHTML = `
-      <div class="summary-item"><div class="num">${data.activeSessions.length}</div><div class="label">활성 세션</div></div>
-      <div class="summary-item"><div class="num">${data.activeSessions.reduce((s,x) => s + (x.git?.changedFiles?.length||0), 0)}</div><div class="label">변경 파일</div></div>
+    // Sync indicator
+    const syncAge = Date.now() - data.timestamp;
+    const dot = document.getElementById('syncDot');
+    const syncStatus = document.getElementById('syncStatus');
+    if (syncAge < 15000) { dot.className = 'sync-dot'; syncStatus.textContent = '실시간'; }
+    else if (syncAge < 60000) { dot.className = 'sync-dot stale'; syncStatus.textContent = `${Math.floor(syncAge/1000)}초 전`; }
+    else { dot.className = 'sync-dot offline'; syncStatus.textContent = '오프라인'; }
+    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('ko-KR');
+
+    // Summary
+    const sessions = data.activeSessions || [];
+    const working = sessions.filter(s => s.status === 'working').length;
+    const waiting = sessions.filter(s => s.status === 'waiting').length;
+    const idle = sessions.filter(s => s.status === 'idle' || !s.status).length;
+    const totalChanges = sessions.reduce((sum, s) => sum + (s.git?.changedFiles?.length || 0), 0);
+
+    document.getElementById('summary').innerHTML = `
+      <div class="stat working"><div class="num">${working}</div><div class="label">작업 중</div></div>
+      <div class="stat"><div class="num">${waiting}</div><div class="label">대기 중</div></div>
+      <div class="stat idle"><div class="num">${idle}</div><div class="label">대기</div></div>
+      <div class="stat"><div class="num">${sessions.length}</div><div class="label">전체 세션</div></div>
+      <div class="stat"><div class="num">${totalChanges}</div><div class="label">변경 파일</div></div>
     `;
 
-    const grid = document.getElementById('activeGrid');
+    // Table - preserve open detail rows
+    const openDetails = new Set();
+    document.querySelectorAll('.detail-row.open').forEach(el => openDetails.add(el.id.replace('detail-', '')));
 
-    if (data.activeSessions.length === 0) {
-      grid.innerHTML = '<div class="empty-state">활성 Claude 세션이 없습니다</div>';
-      existingCards.clear();
+    const table = document.getElementById('sessionTable');
+    if (sessions.length === 0) {
+      table.innerHTML = '<tr><td colspan="7" class="empty">활성 세션이 없습니다</td></tr>';
     } else {
-      const currentSids = new Set(data.activeSessions.map(s => s.sessionId));
-
-      for (const sid of existingCards) {
-        if (!currentSids.has(sid)) {
-          const el = document.getElementById('card-' + sid);
-          if (el) el.remove();
-          existingCards.delete(sid);
-        }
-      }
-
-      for (const session of data.activeSessions) {
-        const sid = session.sessionId;
-        if (existingCards.has(sid)) {
-          const top = document.getElementById('card-top-' + sid);
-          if (top) top.innerHTML = renderCardInfo(session);
-        } else {
-          grid.appendChild(createCard(session));
-          existingCards.add(sid);
-        }
+      // Sort: working first, then waiting, then idle
+      const order = { working: 0, waiting: 1, idle: 2 };
+      sessions.sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
+      table.innerHTML = sessions.map(renderSession).join('');
+      // Restore open states
+      for (const sid of openDetails) {
+        const el = document.getElementById('detail-' + sid);
+        if (el) el.classList.add('open');
       }
     }
 
-    document.getElementById('timeline').innerHTML = renderTimeline(data.recentHistory);
-    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('ko-KR');
+    // Activity timeline
+    const history = data.recentHistory || [];
+    const actList = document.getElementById('activityList');
+    if (history.length === 0) {
+      actList.innerHTML = '<div class="empty">최근 활동 없음</div>';
+    } else {
+      actList.innerHTML = history.slice().reverse().slice(0, 15).map(item => {
+        const project = item.project ? item.project.split('/').pop() : '?';
+        return `<div class="activity-item">
+          <span class="activity-time">${timeAgo(Date.now() - item.timestamp)}</span>
+          <span class="activity-project">${esc(project)}</span>
+          <span class="activity-text">${esc(item.display)}</span>
+        </div>`;
+      }).join('');
+    }
   } catch (e) {
     console.error('Refresh failed:', e);
   }
 }
 
 refresh();
-setInterval(refresh, 10000);
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>
