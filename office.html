@@ -1,0 +1,1678 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Agent Office</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080b0e;
+  --bg-card: #0e1216;
+  --bg-card-hover: #131920;
+  --border: #1a2030;
+  --border-active: #2a3a50;
+  --text: #c8d0dc;
+  --text-dim: #5a6578;
+  --text-bright: #f0f4fa;
+  --green: #22c55e;
+  --green-dim: #16a34a;
+  --green-bg: rgba(34,197,94,0.08);
+  --green-glow: rgba(34,197,94,0.15);
+  --orange: #f59e0b;
+  --orange-bg: rgba(245,158,11,0.08);
+  --red: #ef4444;
+  --blue: #3b82f6;
+  --blue-bg: rgba(59,130,246,0.08);
+  --purple: #a855f7;
+  --purple-bg: rgba(168,85,247,0.08);
+  --accent: #da7756;
+  --accent-bg: rgba(218,119,86,0.08);
+  --sidebar-w: 220px;
+  --font: 'Outfit', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  display: flex;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ─── */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  height: 100vh;
+}
+.sidebar-logo {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-logo h1 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -0.3px;
+}
+.sidebar-logo h1 span { color: var(--green); }
+.sidebar-logo .sub {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+  font-family: var(--mono);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.sidebar-nav { padding: 12px 8px; flex: 1; }
+.nav-section {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 12px 12px 6px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 2px;
+}
+.nav-item:hover { background: var(--bg-card-hover); color: var(--text); }
+.nav-item.active {
+  background: var(--green-bg);
+  color: var(--green);
+  border: 1px solid rgba(34,197,94,0.12);
+}
+.nav-item .icon { font-size: 16px; width: 20px; text-align: center; }
+.nav-item .badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+.nav-item.active .badge { background: rgba(34,197,94,0.12); color: var(--green); }
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.sidebar-footer span { font-size: 11px; color: var(--text-dim); }
+
+/* ─── Main ─── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+.main::-webkit-scrollbar { width: 6px; }
+.main::-webkit-scrollbar-track { background: transparent; }
+.main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.main-header {
+  padding: 20px 28px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky; top: 0;
+  background: rgba(8,11,14,0.85);
+  backdrop-filter: blur(12px);
+  z-index: 10;
+}
+.main-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-bright);
+  letter-spacing: -0.3px;
+}
+.main-header .time {
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+.content { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 28px 40px; }
+.content::-webkit-scrollbar { width: 6px; }
+.content::-webkit-scrollbar-track { background: transparent; }
+.content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── Stat Cards Row ─── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.stat-card:hover {
+  border-color: var(--border-active);
+  transform: translateY(-1px);
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+}
+.stat-card.green::before { background: linear-gradient(90deg, var(--green), transparent); }
+.stat-card.blue::before { background: linear-gradient(90deg, var(--blue), transparent); }
+.stat-card.purple::before { background: linear-gradient(90deg, var(--purple), transparent); }
+.stat-card.orange::before { background: linear-gradient(90deg, var(--orange), transparent); }
+.stat-card.accent::before { background: linear-gradient(90deg, var(--accent), transparent); }
+
+.stat-card .num {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--text-bright);
+  font-family: var(--mono);
+  letter-spacing: -2px;
+  line-height: 1;
+}
+.stat-card.green .num { color: var(--green); }
+.stat-card.blue .num { color: var(--blue); }
+.stat-card.purple .num { color: var(--purple); }
+.stat-card.orange .num { color: var(--orange); }
+.stat-card.accent .num { color: var(--accent); }
+
+.stat-card .label {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  font-weight: 500;
+}
+.stat-card .trend {
+  position: absolute;
+  top: 14px; right: 14px;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.stat-card .trend.up { color: var(--green); background: var(--green-bg); }
+
+/* ─── Session Stats ─── */
+.session-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.session-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.session-icon {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+.session-icon.working { background: var(--green-bg); }
+.session-icon.waiting { background: var(--orange-bg); }
+.session-icon.idle { background: rgba(90,101,120,0.1); }
+.session-icon.total { background: var(--blue-bg); }
+.session-info .val {
+  font-size: 20px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--text-bright);
+  letter-spacing: -1px;
+}
+.session-info .lbl { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+
+/* ─── Architecture Diagram ─── */
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.arch-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.arch-core {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.arch-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--mono);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.arch-node.core {
+  background: var(--green-bg);
+  border-color: rgba(34,197,94,0.2);
+  color: var(--green);
+  font-size: 14px;
+  padding: 10px 24px;
+}
+.arch-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.arch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--mono);
+  border: 1px solid;
+  transition: transform 0.15s;
+  cursor: default;
+}
+.arch-badge:hover { transform: scale(1.04); }
+.arch-badge.rules { background: var(--accent-bg); border-color: rgba(218,119,86,0.2); color: var(--accent); }
+.arch-badge.agents { background: var(--blue-bg); border-color: rgba(59,130,246,0.2); color: var(--blue); }
+.arch-badge.skills { background: var(--green-bg); border-color: rgba(34,197,94,0.2); color: var(--green); }
+.arch-badge.hooks { background: var(--purple-bg); border-color: rgba(168,85,247,0.2); color: var(--purple); }
+.arch-badge .cnt { opacity: 0.7; }
+
+.arch-line {
+  width: 1px; height: 16px;
+  background: var(--border);
+}
+.arch-branch {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  position: relative;
+}
+.arch-branch::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 1px;
+  background: var(--border);
+}
+.arch-ext-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 8px;
+}
+.arch-ext {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 500;
+  font-family: var(--mono);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  transition: border-color 0.15s;
+}
+.arch-ext:hover { border-color: var(--text-dim); }
+
+/* ─── Session Table ─── */
+.table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(14,18,22,0.6);
+}
+td {
+  padding: 12px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-card-hover); }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.status-pill.working { background: var(--green-bg); color: var(--green); }
+.status-pill.waiting { background: var(--orange-bg); color: var(--orange); }
+.status-pill.idle { background: rgba(90,101,120,0.08); color: var(--text-dim); }
+.status-pill .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor;
+}
+.status-pill.working .dot { animation: blink 1.5s infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+.proj-name { font-weight: 600; color: var(--text-bright); font-size: 13px; }
+.proj-path { font-size: 9px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px; }
+.branch-tag {
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--blue);
+  background: var(--blue-bg);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.action-text { color: var(--text); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.user-msg { color: var(--blue); font-size: 10px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.tool-tags { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 4px; }
+.tool-tag {
+  font-size: 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--mono);
+}
+.token-val { font-family: var(--mono); font-weight: 600; color: var(--text-bright); font-size: 12px; }
+.change-count { color: var(--orange); font-weight: 600; font-family: var(--mono); }
+.time-val { font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+
+/* ─── Detail Row ─── */
+.detail-row { display: none; }
+.detail-row.open { display: table-row; }
+.detail-content { padding: 14px 16px; background: rgba(8,11,14,0.5); }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.detail-section { margin-bottom: 8px; }
+.detail-label { font-size: 9px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+.detail-val { font-size: 11px; color: var(--text); }
+.commit-hash { color: var(--accent); font-family: var(--mono); }
+.file-list { font-size: 10px; font-family: var(--mono); }
+.file-M { color: var(--orange); } .file-A { color: var(--green); } .file-D,.file-Q { color: var(--red); }
+.token-bar { display: flex; gap: 10px; }
+.token-item { font-size: 10px; color: var(--text-dim); }
+.token-item span { font-weight: 600; }
+.token-item.in span { color: var(--blue); }
+.token-item.out span { color: var(--green); }
+.token-item.cache span { color: var(--orange); }
+
+/* ─── Animations ─── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate { animation: fadeUp 0.4s ease-out both; }
+.d1 { animation-delay: 0.05s; }
+.d2 { animation-delay: 0.1s; }
+.d3 { animation-delay: 0.15s; }
+.d4 { animation-delay: 0.2s; }
+.d5 { animation-delay: 0.25s; }
+.d6 { animation-delay: 0.3s; }
+.d7 { animation-delay: 0.35s; }
+
+/* ─── Views ─── */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ─── Modal / Popup ─── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 500;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: modalFadeIn 0.2s ease-out;
+}
+.modal-overlay.closing { animation: modalFadeOut 0.15s ease-in forwards; }
+@keyframes modalFadeIn { from{opacity:0} to{opacity:1} }
+@keyframes modalFadeOut { from{opacity:1} to{opacity:0} }
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: min(560px, 90vw);
+  max-height: 75vh;
+  overflow-y: auto;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+  animation: modalSlideUp 0.25s cubic-bezier(0.16,1,0.3,1);
+}
+.modal.closing { animation: modalSlideDown 0.15s ease-in forwards; }
+@keyframes modalSlideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+@keyframes modalSlideDown { from{opacity:1;transform:translateY(0)} to{opacity:0;transform:translateY(20px)} }
+.modal::-webkit-scrollbar { width: 5px; }
+.modal::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.modal-header {
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; background: var(--bg-card); z-index: 1;
+}
+.modal-header h3 { font-size: 15px; font-weight: 700; color: var(--text-bright); }
+.modal-close {
+  background: none; border: none; color: var(--text-dim);
+  font-size: 18px; cursor: pointer; padding: 4px 8px; border-radius: 6px;
+  transition: background 0.1s;
+}
+.modal-close:hover { background: var(--bg-card-hover); color: var(--text); }
+.modal-body { padding: 16px 22px 20px; }
+.modal-list-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: 8px;
+  font-size: 12px; color: var(--text);
+  transition: background 0.1s;
+}
+.modal-list-item:hover { background: var(--bg-card-hover); }
+.modal-list-item .ml-icon {
+  width: 28px; height: 28px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; flex-shrink: 0;
+}
+.modal-list-item .ml-name { font-weight: 600; color: var(--text-bright); font-family: var(--mono); font-size: 11px; }
+.modal-list-item .ml-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+
+/* ─── Skill Grid ─── */
+.skill-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.skill-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: default;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.skill-item:hover { border-color: var(--border-active); transform: translateY(-1px); }
+.skill-name { font-size: 12px; font-weight: 600; color: var(--text-bright); font-family: var(--mono); }
+.skill-type {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+.skill-type.skill { background: var(--green-bg); color: var(--green); }
+.skill-type.agent { background: var(--blue-bg); color: var(--blue); }
+.skill-type.command { background: var(--purple-bg); color: var(--purple); }
+.skill-type.plugin { background: var(--accent-bg); color: var(--accent); }
+
+/* ─── Log Items ─── */
+.log-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  transition: background 0.1s;
+}
+.log-item:hover { background: var(--bg-card-hover); }
+.log-item:last-child { border-bottom: none; }
+.log-time { min-width: 55px; font-size: 10px; color: var(--text-dim); font-family: var(--mono); }
+.log-proj { min-width: 90px; font-size: 10px; color: var(--accent); font-weight: 600; }
+.log-text { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── Discord ─── */
+.cmd-preview {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100px;
+  transition: border-color 0.15s;
+}
+.cmd-preview:hover { border-color: var(--green); }
+.cmd-name { font-family: var(--mono); font-weight: 600; font-size: 12px; color: var(--green); }
+.cmd-desc { font-size: 9px; color: var(--text-dim); }
+
+.setup-steps { display: flex; flex-direction: column; gap: 12px; }
+.setup-step {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setup-step:last-child { border-bottom: none; }
+.step-num {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  background: var(--green-bg);
+  border: 1px solid rgba(34,197,94,0.2);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.step-title { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+.step-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+/* ─── Settings ─── */
+.settings-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.setting-item {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.setting-label { font-size: 10px; color: var(--text-dim); margin-bottom: 4px; }
+.setting-val { font-size: 14px; font-weight: 600; color: var(--text-bright); font-family: var(--mono); }
+
+.env-list { display: flex; flex-direction: column; gap: 6px; }
+.env-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.env-item:last-child { border-bottom: none; }
+.env-key { font-family: var(--mono); font-weight: 600; color: var(--green); min-width: 180px; font-size: 11px; }
+.env-val { font-family: var(--mono); color: var(--text-bright); min-width: 100px; font-size: 11px; }
+.env-desc { color: var(--text-dim); font-size: 10px; }
+
+/* ─── 2D Office ─── */
+.office-floor {
+  background: #0f1a14;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  min-height: calc(100vh - 180px);
+  background-image:
+    linear-gradient(rgba(34,197,94,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34,197,94,0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+.agent-desk {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 16px 10px 12px;
+  border-radius: 12px;
+  background: rgba(14,18,22,0.7);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.agent-desk:hover {
+  border-color: var(--green);
+  background: rgba(34,197,94,0.04);
+  transform: translateY(-3px);
+}
+.agent-desk.active {
+  border-color: var(--green);
+  box-shadow: 0 0 20px rgba(34,197,94,0.1);
+}
+.agent-desk .desk-status {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.agent-desk .desk-status.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.agent-desk .desk-status.busy { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
+
+/* Pixel Character */
+.pixel-char {
+  width: 64px;
+  height: 64px;
+  image-rendering: pixelated;
+  border-radius: 4px;
+}
+.agent-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-bright);
+  font-family: var(--mono);
+  text-align: center;
+}
+.agent-role {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+}
+.agent-tag {
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+/* Agent Detail Panel */
+.agent-panel {
+  position: fixed;
+  right: 0; top: 0; bottom: 0;
+  width: min(380px, 85vw);
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  z-index: 400;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 40px rgba(0,0,0,0.3);
+}
+.agent-panel.open { transform: translateX(0); }
+.agent-panel-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.agent-panel-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+}
+.agent-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.agent-panel-section { margin-bottom: 16px; }
+.agent-panel-section .aps-title {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+.agent-panel-section .aps-body {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.6;
+}
+.agent-panel-section .aps-body code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--green);
+}
+.trigger-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.trigger-tag {
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.discord-hint {
+  background: rgba(88,101,242,0.08);
+  border: 1px solid rgba(88,101,242,0.2);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 8px;
+}
+.discord-hint .dh-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #7289da;
+  margin-bottom: 4px;
+}
+.discord-hint .dh-cmd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-bright);
+}
+
+/* ─── Create Expert ─── */
+.add-expert-btn {
+  background: var(--green-bg);
+  border: 1px solid rgba(34,197,94,0.2);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font);
+  transition: all 0.15s;
+}
+.add-expert-btn:hover { background: rgba(34,197,94,0.15); }
+
+.form-group { margin-bottom: 14px; }
+.form-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 5px;
+}
+.form-input, .form-select, .form-textarea {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-bright);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--green); }
+.form-textarea { resize: vertical; min-height: 60px; font-size: 12px; }
+.form-select { appearance: none; cursor: pointer; }
+.form-hint { font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.btn-primary {
+  background: var(--green);
+  border: none;
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.btn-ghost:hover { border-color: var(--text-dim); color: var(--text); }
+.color-options { display: flex; gap: 6px; flex-wrap: wrap; }
+.color-opt {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.color-opt:hover { transform: scale(1.15); }
+.color-opt.selected { border-color: var(--text-bright); transform: scale(1.15); }
+.tool-checkboxes { display: flex; gap: 6px; flex-wrap: wrap; }
+.tool-check {
+  font-size: 10px;
+  font-family: var(--mono);
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.1s;
+  user-select: none;
+}
+.tool-check.on { background: var(--green-bg); border-color: rgba(34,197,94,0.3); color: var(--green); }
+
+/* ─── Discord Chat Preview ─── */
+.channel-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ch-name { font-family: var(--mono); font-weight: 600; color: var(--text-bright); font-size: 13px; }
+.ch-agent { font-size: 11px; color: var(--text); margin-top: 2px; }
+.ch-desc { font-size: 10px; color: var(--text-dim); margin-top: 4px; }
+
+.discord-chat {
+  background: #2f3136;
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-family: 'Outfit', sans-serif;
+}
+.dc-msg { padding: 6px 0; }
+.dc-msg.bot { padding-left: 12px; }
+.dc-author { font-weight: 600; font-size: 12px; }
+.dc-channel { font-size: 10px; color: #72767d; font-family: var(--mono); }
+.dc-text { font-size: 12px; color: #dcddde; margin-top: 2px; line-height: 1.5; }
+.dc-text code { background: #2b2d31; padding: 1px 4px; border-radius: 3px; font-family: var(--mono); font-size: 11px; }
+.dc-divider { border-top: 1px solid #40444b; margin: 8px 0; }
+
+/* ─── Responsive ─── */
+@media (max-width: 1100px) {
+  .stats-row { grid-template-columns: repeat(3, 1fr); }
+  .session-row { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+  .content { padding: 0; }
+  .view { padding: 14px 16px 30px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <h1><span>Claude</span> Agent Office</h1>
+    <div class="sub">Virtual HQ</div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Main</div>
+    <div class="nav-item active" data-view="overview">
+      <span class="icon">◉</span> 시스템 개요
+    </div>
+    <div class="nav-item" data-view="sessions">
+      <span class="icon">◎</span> 세션 모니터 <span class="badge" id="navSessionCount">0</span>
+    </div>
+    <div class="nav-item" data-view="office">
+      <span class="icon">▣</span> 가상 오피스
+    </div>
+    <div class="nav-section">System</div>
+    <div class="nav-item" data-view="skills">
+      <span class="icon">⬡</span> 스킬 목록 <span class="badge">38</span>
+    </div>
+    <div class="nav-item" data-view="logs">
+      <span class="icon">▤</span> 활동 로그
+    </div>
+    <div class="nav-item" data-view="discord">
+      <span class="icon">◈</span> Discord 봇
+    </div>
+    <div class="nav-section">Config</div>
+    <div class="nav-item" data-view="settings">
+      <span class="icon">⚙</span> 설정
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="status-dot" id="footerDot"></div>
+    <span id="footerStatus">연결 중...</span>
+  </div>
+</aside>
+
+<!-- Main Content -->
+<div class="main">
+  <div class="main-header">
+    <h2>시스템 개요</h2>
+    <div class="time" id="headerTime"></div>
+  </div>
+
+  <div class="content">
+
+    <!-- ═══ VIEW: overview ═══ -->
+    <div class="view" id="view-overview">
+      <div class="stats-row">
+        <div class="stat-card blue animate d1" onclick="openModal('agents')" style="cursor:pointer"><div class="num" id="agentCount">2</div><div class="label">에이전트</div></div>
+        <div class="stat-card green animate d2" onclick="openModal('skills')" style="cursor:pointer"><div class="num" id="skillCount">38</div><div class="label">스킬</div></div>
+        <div class="stat-card purple animate d3" onclick="openModal('hooks')" style="cursor:pointer"><div class="num" id="hookCount">14</div><div class="label">훅</div></div>
+        <div class="stat-card orange animate d4" onclick="openModal('commands')" style="cursor:pointer"><div class="num" id="commandCount">9</div><div class="label">커맨드</div></div>
+        <div class="stat-card accent animate d5" onclick="openModal('plugins')" style="cursor:pointer"><div class="num" id="pluginCount">41</div><div class="label">플러그인</div></div>
+      </div>
+      <div class="session-row">
+        <div class="session-card"><div class="session-icon working">⚡</div><div class="session-info"><div class="val" id="workingCount">0</div><div class="lbl">작업 중</div></div></div>
+        <div class="session-card"><div class="session-icon waiting">⏳</div><div class="session-info"><div class="val" id="waitingCount">0</div><div class="lbl">대기 중</div></div></div>
+        <div class="session-card"><div class="session-icon idle">💤</div><div class="session-info"><div class="val" id="idleCount">0</div><div class="lbl">유휴</div></div></div>
+        <div class="session-card"><div class="session-icon total">📊</div><div class="session-info"><div class="val" id="totalTokens">0</div><div class="lbl">총 토큰</div></div></div>
+      </div>
+      <div class="section-title">시스템 아키텍처</div>
+      <div class="arch-container">
+        <div class="arch-core">
+          <div class="arch-node core">CLAUDE.md</div>
+          <div class="arch-line"></div>
+          <div class="arch-badges">
+            <div class="arch-badge rules">rules/ <span class="cnt">90</span></div>
+            <div class="arch-badge agents">agents/ <span class="cnt">2</span></div>
+            <div class="arch-badge skills">skills/ <span class="cnt">38</span></div>
+            <div class="arch-badge hooks">hooks/ <span class="cnt">14</span></div>
+          </div>
+          <div class="arch-line"></div>
+          <div class="arch-ext-group">
+            <div class="arch-ext">Discord</div><div class="arch-ext">GitHub</div><div class="arch-ext">Railway</div><div class="arch-ext">Codex CLI</div><div class="arch-ext">Supabase</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: sessions ═══ -->
+    <div class="view" id="view-sessions" style="display:none">
+      <div class="section-title">활성 세션</div>
+      <div class="table-container">
+        <table><thead><tr>
+          <th>상태</th><th>프로젝트</th><th>브랜치</th><th>최근 작업</th><th>토큰</th><th>변경</th><th>활동</th><th>Uptime</th>
+        </tr></thead><tbody id="sessionTable"></tbody></table>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: office (2D Pixel Office) ═══ -->
+    <div class="view" id="view-office" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:0">가상 오피스 — 전문가 팀</div>
+        <button class="add-expert-btn" onclick="openCreateModal()">+ 전문가 추가</button>
+      </div>
+      <div class="office-floor" id="officeFloor"></div>
+    </div>
+
+    <!-- ═══ VIEW: skills ═══ -->
+    <div class="view" id="view-skills" style="display:none">
+      <div class="section-title">스킬 목록 (38)</div>
+      <div id="skillGrid" class="skill-grid"></div>
+    </div>
+
+    <!-- ═══ VIEW: logs ═══ -->
+    <div class="view" id="view-logs" style="display:none">
+      <div class="section-title">활동 로그</div>
+      <div class="table-container">
+        <div id="logList" style="padding:8px 0"></div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: discord ═══ -->
+    <div class="view" id="view-discord" style="display:none">
+      <div class="section-title">채널별 전문가 배정</div>
+      <div class="arch-container" style="padding:20px">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:16px;line-height:1.6">각 디스코드 채널에 전문가가 배정되어 있습니다. 해당 채널에 <b style="color:var(--text-bright)">그냥 말하면</b> 전문가가 대답합니다.</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px">
+          <div class="channel-card" style="border-left:3px solid #3b82f6"><div class="ch-name"># 설계</div><div class="ch-agent">🏗️ Architect</div><div class="ch-desc">구조, 아키텍처, 기술 스택</div></div>
+          <div class="channel-card" style="border-left:3px solid #ef4444"><div class="ch-name"># 디버그</div><div class="ch-agent">🔴 Debugger</div><div class="ch-desc">에러, 버그, 로그 분석</div></div>
+          <div class="channel-card" style="border-left:3px solid #06b6d4"><div class="ch-name"># 리서치</div><div class="ch-agent">🔍 Researcher</div><div class="ch-desc">기술 비교, 트렌드 조사</div></div>
+          <div class="channel-card" style="border-left:3px solid #22c55e"><div class="ch-name"># 배포</div><div class="ch-agent">🚀 Deployer</div><div class="ch-desc">Railway, Vercel, CI/CD</div></div>
+          <div class="channel-card" style="border-left:3px solid #eab308"><div class="ch-name"># 리뷰</div><div class="ch-agent">📝 Reviewer</div><div class="ch-desc">코드 품질, 보안, 리팩토링</div></div>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">사용 예시</div>
+      <div class="arch-container" style="padding:20px">
+        <div class="discord-chat">
+          <div class="dc-msg user"><span class="dc-author" style="color:#3b82f6">나</span> <span class="dc-channel">#설계</span><div class="dc-text">이 프로젝트 폴더 구조 좀 잡아줘. Node.js + Discord 봇이야</div></div>
+          <div class="dc-msg bot"><span class="dc-author" style="color:#3b82f6">🏗️ Architect</span><div class="dc-text">Node.js + Discord 봇 프로젝트 구조를 제안드립니다...<br><code>src/bot/ src/api/ src/agents/</code> ...</div></div>
+          <div class="dc-divider"></div>
+          <div class="dc-msg user"><span class="dc-author" style="color:#ef4444">나</span> <span class="dc-channel">#디버그</span><div class="dc-text">TypeError: Cannot read properties of undefined 에러 나는데</div></div>
+          <div class="dc-msg bot"><span class="dc-author" style="color:#ef4444">🔴 Debugger</span><div class="dc-text">스택 트레이스를 보면 line 42에서 null 객체를 참조하고 있어요...</div></div>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">공통 명령어 (아무 채널)</div>
+      <div class="arch-container" style="padding:20px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="cmd-preview"><span class="cmd-name">!status</span><span class="cmd-desc">시스템 현황</span></div>
+          <div class="cmd-preview"><span class="cmd-name">!sessions</span><span class="cmd-desc">세션 목록</span></div>
+          <div class="cmd-preview"><span class="cmd-name">!experts</span><span class="cmd-desc">전문가 목록</span></div>
+          <div class="cmd-preview"><span class="cmd-name">!help</span><span class="cmd-desc">사용법</span></div>
+        </div>
+      </div>
+
+      <div class="section-title" style="margin-top:20px">설정 가이드</div>
+      <div class="arch-container" style="padding:20px">
+        <div class="setup-steps">
+          <div class="setup-step"><span class="step-num">1</span><div><div class="step-title">Discord 봇 생성</div><div class="step-desc"><a href="https://discord.com/developers/applications" style="color:var(--blue)" target="_blank">Discord Developer Portal</a> → New Application → Bot 탭 → Reset Token → 복사</div></div></div>
+          <div class="setup-step"><span class="step-num">2</span><div><div class="step-title">봇 권한 설정</div><div class="step-desc">Bot 탭 → Privileged Gateway Intents → <b>Message Content Intent</b> 켜기</div></div></div>
+          <div class="setup-step"><span class="step-num">3</span><div><div class="step-title">디스코드 서버에 채널 만들기</div><div class="step-desc">#설계, #디버그, #리서치, #배포, #리뷰 채널 5개 생성</div></div></div>
+          <div class="setup-step"><span class="step-num">4</span><div><div class="step-title">봇 초대</div><div class="step-desc">OAuth2 → URL Generator → bot + applications.commands → Send Messages, Read Messages → URL로 초대</div></div></div>
+          <div class="setup-step"><span class="step-num">5</span><div><div class="step-title">.env 파일 설정</div><div class="step-desc"><code style="color:var(--green);background:var(--bg);padding:2px 6px;border-radius:3px">DISCORD_TOKEN=봇토큰</code> + <code style="color:var(--green);background:var(--bg);padding:2px 6px;border-radius:3px">DISCORD_CHANNEL_ID=알림채널ID</code></div></div></div>
+          <div class="setup-step"><span class="step-num">6</span><div><div class="step-title">서버 재시작</div><div class="step-desc"><code style="color:var(--green);background:var(--bg);padding:2px 6px;border-radius:3px">node server.js</code> — 봇이 자동으로 채널을 감지하고 전문가를 매핑합니다</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ VIEW: settings ═══ -->
+    <div class="view" id="view-settings" style="display:none">
+      <div class="section-title">시스템 설정</div>
+      <div class="arch-container">
+        <div class="settings-grid">
+          <div class="setting-item">
+            <div class="setting-label">서버 포트</div>
+            <div class="setting-val">3333</div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">동기화 주기</div>
+            <div class="setting-val">5초</div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">대시보드 인증</div>
+            <div class="setting-val" id="settingAuth">-</div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">Discord 봇</div>
+            <div class="setting-val" style="color:var(--orange)">미연결</div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">Railway 배포</div>
+            <div class="setting-val" style="color:var(--text-dim)">미설정</div>
+          </div>
+          <div class="setting-item">
+            <div class="setting-label">원격 트리거</div>
+            <div class="setting-val" style="color:var(--text-dim)">Phase 2</div>
+          </div>
+        </div>
+      </div>
+      <div class="section-title" style="margin-top:20px">환경변수</div>
+      <div class="arch-container">
+        <div class="env-list">
+          <div class="env-item"><span class="env-key">PORT</span><span class="env-val">3333</span><span class="env-desc">서버 포트</span></div>
+          <div class="env-item"><span class="env-key">SYNC_SECRET</span><span class="env-val">••••••</span><span class="env-desc">동기화 인증</span></div>
+          <div class="env-item"><span class="env-key">DASH_PASSWORD</span><span class="env-val">-</span><span class="env-desc">웹 비밀번호</span></div>
+          <div class="env-item"><span class="env-key">DISCORD_TOKEN</span><span class="env-val" style="color:var(--orange)">미설정</span><span class="env-desc">봇 토큰</span></div>
+          <div class="env-item"><span class="env-key">DISCORD_CHANNEL_ID</span><span class="env-val" style="color:var(--orange)">미설정</span><span class="env-desc">알림 채널</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── Helpers ───
+function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
+function fmtT(n){if(!n)return'0';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(n)}
+function fmtU(ms){const h=Math.floor(ms/36e5),m=Math.floor((ms%36e5)/6e4);return h>0?`${h}h ${m}m`:`${m}m`}
+function timeAgo(ms){if(ms<10000)return'방금';if(ms<60000)return`${Math.floor(ms/1000)}초 전`;if(ms<3600000)return`${Math.floor(ms/60000)}분 전`;if(ms<86400000)return`${Math.floor(ms/3600000)}시간 전`;return`${Math.floor(ms/86400000)}일 전`}
+function statusLabel(s){return{working:'작업 중',waiting:'대기 중',idle:'대기'}[s]||s||'idle'}
+
+// ─── Clock ───
+function updateTime(){
+  document.getElementById('headerTime').textContent=new Date().toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+}
+setInterval(updateTime,1000);updateTime();
+
+// ─── View titles ───
+const viewTitles={overview:'시스템 개요',sessions:'세션 모니터',office:'가상 오피스',skills:'스킬 목록',logs:'활동 로그',discord:'Discord 봇',settings:'설정'};
+
+// ─── Navigation ───
+let currentView='overview';
+function switchView(view){
+  currentView=view;
+  // Hide ALL views first
+  document.querySelectorAll('.view').forEach(v=>{v.style.display='none';v.classList.remove('active')});
+  // Show only the target
+  const el=document.getElementById('view-'+view);
+  if(el){el.style.display='block';el.classList.add('active')}
+  // Nav highlight
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
+  // Title
+  document.querySelector('.main-header h2').textContent=viewTitles[view]||view;
+  // Scroll to top
+  document.querySelector('.content').scrollTop=0;
+  // Lazy loads
+  if(view==='office') renderOffice();
+  if(view==='skills'&&!skillsLoaded) loadSkills();
+}
+
+document.querySelectorAll('.nav-item').forEach(item=>{
+  item.addEventListener('click',()=>switchView(item.dataset.view));
+});
+// Show initial view
+switchView('overview');
+
+// ─── Modal ───
+function openModal(type){
+  const data=MODAL_DATA[type];
+  if(!data)return;
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.innerHTML=`<div class="modal">
+    <div class="modal-header"><h3>${data.title} (${data.items.length})</h3><button class="modal-close" onclick="closeModal(this)">&times;</button></div>
+    <div class="modal-body">${data.items.map(i=>`<div class="modal-list-item">
+      <div class="ml-icon" style="background:${data.iconBg};color:${data.iconColor}">${data.icon}</div>
+      <div><div class="ml-name">${esc(i.name)}</div>${i.sub?`<div class="ml-sub">${esc(i.sub)}</div>`:''}</div>
+    </div>`).join('')}</div>
+  </div>`;
+  overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal(overlay.querySelector('.modal-close'))});
+  document.body.appendChild(overlay);
+}
+function closeModal(btn){
+  const overlay=btn.closest('.modal-overlay');
+  const modal=overlay.querySelector('.modal');
+  overlay.classList.add('closing');modal.classList.add('closing');
+  setTimeout(()=>overlay.remove(),150);
+}
+
+// ─── Skills ───
+let skillsLoaded=false;
+const SKILLS=[
+  'algorithmic-art','brand-guidelines','canvas-design','claude-api','deep-research-main',
+  'deep-research-query','doc-coauthoring','docs-guide-knowledge','docx','frontend-design',
+  'git-teacher-help','git-teacher-review','git-teacher-save','git-teacher-setup',
+  'git-teacher-status','git-teacher-upload','internal-comms','kkirikkiri','mcp-builder',
+  'nopal-orchestrate','nopal-setup','pdf','pptx','pumasi','show-me-the-prd',
+  'skill-creator','skillers-suda','slack-gif-creator','theme-factory','ui-ux-pro-max',
+  'vibe-sunsang-growth','vibe-sunsang-knowledge','vibe-sunsang-mentor','vibe-sunsang-onboard',
+  'vibe-sunsang-retro','vibeindex','web-artifacts-builder','webapp-testing','xlsx'
+];
+const AGENTS=['docs-guide','growth-analyst'];
+const COMMANDS=['deep-research','docs-guide','git-teacher','kkirikkiri','nopal','pumasi','show-me-the-prd','skillers-suda','vibe-sunsang'];
+
+const PLUGINS_OFFICIAL=['agent-sdk-dev','clangd-lsp','claude-code-setup','claude-md-management','code-review','code-simplifier','commit-commands','csharp-lsp','example-plugin','explanatory-output-style','feature-dev','frontend-design','gopls-lsp','hookify','jdtls-lsp','kotlin-lsp','learning-output-style','lua-lsp','math-olympiad','mcp-server-dev','php-lsp','playground','plugin-dev','pr-review-toolkit','pyright-lsp','ralph-loop','ruby-lsp','rust-analyzer-lsp','security-guidance','skill-creator','swift-lsp','typescript-lsp'];
+const PLUGINS_GPTAKU=['deep-research','docs-guide','git-teacher','kkirikkiri','nopal','pumasi','show-me-the-prd','skillers-suda','vibe-sunsang'];
+const HOOKS=['codex:SessionStart','codex:SessionEnd','codex:Stop','learning-output-style:SessionStart','security-guidance:PreToolUse','explanatory-output-style:SessionStart','ralph-loop:Stop','hookify:PreToolUse','hookify:PostToolUse','hookify:Stop','hookify:UserPromptSubmit','codex-cache:SessionStart','codex-cache:SessionEnd','codex-cache:Stop'];
+
+const MODAL_DATA={
+  agents:{title:'에이전트',icon:'◎',iconBg:'var(--blue-bg)',iconColor:'var(--blue)',items:AGENTS.map(a=>({name:a,sub:'~/.claude/agents/'+a+'.md'}))},
+  skills:{title:'스킬',icon:'⬡',iconBg:'var(--green-bg)',iconColor:'var(--green)',items:SKILLS.map(s=>({name:s,sub:'~/.claude/skills/'+s+'/'}))},
+  hooks:{title:'훅',icon:'⟁',iconBg:'var(--purple-bg)',iconColor:'var(--purple)',items:HOOKS.map(h=>{const[p,t]=h.split(':');return{name:t,sub:'plugin: '+p}})},
+  commands:{title:'커맨드',icon:'▸',iconBg:'var(--orange-bg)',iconColor:'var(--orange)',items:COMMANDS.map(c=>({name:c,sub:'~/.claude/commands/'+c+'.md'}))},
+  plugins:{title:'플러그인',icon:'◈',iconBg:'var(--accent-bg)',iconColor:'var(--accent)',items:[...PLUGINS_OFFICIAL.map(p=>({name:p,sub:'official'})),...PLUGINS_GPTAKU.map(p=>({name:p,sub:'gptaku'})),{name:'codex',sub:'openai-codex'}]},
+};
+
+function loadSkills(){
+  skillsLoaded=true;
+  const grid=document.getElementById('skillGrid');
+  let html='';
+  // Agents
+  for(const a of AGENTS) html+=`<div class="skill-item"><div class="skill-name">${esc(a)}</div><span class="skill-type agent">Agent</span></div>`;
+  // Commands
+  for(const c of COMMANDS) html+=`<div class="skill-item"><div class="skill-name">${esc(c)}</div><span class="skill-type command">Command</span></div>`;
+  // Skills
+  for(const s of SKILLS) html+=`<div class="skill-item"><div class="skill-name">${esc(s)}</div><span class="skill-type skill">Skill</span></div>`;
+  grid.innerHTML=html;
+}
+
+// ─── Session Rendering ───
+function renderSession(s){
+  const st=s.status||'idle';const g=s.git;
+  let main=`<tr onclick="document.getElementById('det-${s.sessionId}')?.classList.toggle('open')" style="cursor:pointer">
+    <td><span class="status-pill ${st}"><span class="dot"></span>${statusLabel(st)}</span></td>
+    <td><div class="proj-name">${esc(s.projectName)}</div><div class="proj-path">${esc(s.cwd)}</div></td>
+    <td>${g?`<span class="branch-tag">${esc(g.branch)}</span>`:'-'}</td>
+    <td><div class="action-text">${esc(s.lastAction||'-')}</div>
+      ${s.lastUserMessage?`<div class="user-msg">"${esc(s.lastUserMessage)}"</div>`:''}
+      ${s.toolSummary?.length?`<div class="tool-tags">${s.toolSummary.map(t=>`<span class="tool-tag">${esc(t)}</span>`).join('')}</div>`:''}</td>
+    <td>${s.tokenUsage?`<span class="token-val">${fmtT((s.tokenUsage.input||0)+(s.tokenUsage.output||0)+(s.tokenUsage.cacheCreation||0)+(s.tokenUsage.cacheRead||0))}</span>`:'<span class="time-val">-</span>'}</td>
+    <td>${g?.changedFiles?.length?`<span class="change-count">${g.changedFiles.length}개</span>`:'<span class="time-val">-</span>'}</td>
+    <td><span class="time-val">${timeAgo(s.lastActivityAgo||s.uptime)}</span></td>
+    <td><span class="time-val">${fmtU(s.uptime)}</span></td></tr>`;
+
+  let det='<div class="detail-content"><div class="detail-grid"><div>';
+  if(g){
+    det+=`<div class="detail-section"><div class="detail-label">Git</div>
+      <div class="detail-val"><span class="commit-hash">${esc(g.lastCommit?.hash)}</span> ${esc(g.lastCommit?.subject)}</div></div>`;
+    if(g.changedFiles?.length){
+      det+=`<div class="detail-section"><div class="detail-label">변경 파일 (${g.changedFiles.length})</div><div class="file-list">`;
+      for(const f of g.changedFiles.slice(0,6)){const sc=f.status[0]==='?'?'Q':f.status[0];det+=`<div><span class="file-${sc}">${esc(f.status)}</span> ${esc(f.file)}</div>`}
+      det+=`</div></div>`}}
+  det+=`</div><div>`;
+  if(s.tokenUsage){const t=s.tokenUsage;det+=`<div class="detail-section"><div class="detail-label">토큰</div><div class="token-bar">
+    <span class="token-item in">In: <span>${fmtT(t.input)}</span></span>
+    <span class="token-item out">Out: <span>${fmtT(t.output)}</span></span>
+    <span class="token-item cache">Cache: <span>${fmtT((t.cacheCreation||0)+(t.cacheRead||0))}</span></span></div></div>`}
+  if(s.recentActions?.length){
+    det+=`<div class="detail-section"><div class="detail-label">최근 작업</div>`;
+    for(const a of s.recentActions.slice().reverse().slice(0,4))det+=`<div style="font-size:10px;padding:1px 0;color:var(--text-dim)">${a.type==='tool'?`<span style="color:var(--accent)">${esc(a.name)}</span> ${esc(a.detail)}`:`<span style="color:var(--green)">응답</span> ${esc(a.text?.substring(0,60))}`}</div>`;
+    det+=`</div>`}
+  det+=`<div class="detail-section"><div class="detail-label">통계</div><div class="detail-val" style="font-size:10px">메시지: ${s.messageCount?.user||0}/${s.messageCount?.assistant||0} · PID: ${s.pid}</div></div>`;
+  det+=`</div></div></div>`;
+  return main+`<tr class="detail-row" id="det-${s.sessionId}"><td colspan="8">${det}</td></tr>`;
+}
+
+// ─── Logs ───
+function renderLogs(history){
+  const list=document.getElementById('logList');
+  if(!history||!history.length){list.innerHTML='<div style="text-align:center;padding:30px;color:var(--text-dim)">최근 활동 없음</div>';return}
+  list.innerHTML=history.slice().reverse().slice(0,30).map(item=>{
+    const proj=item.project?item.project.split('/').pop():'?';
+    return`<div class="log-item">
+      <span class="log-time">${timeAgo(Date.now()-item.timestamp)}</span>
+      <span class="log-proj">${esc(proj)}</span>
+      <span class="log-text">${esc(item.display)}</span>
+    </div>`}).join('');
+}
+
+// ─── Data ───
+let lastSessions=[];
+async function refresh(){
+  try{
+    const r=await fetch('/api/dashboard');
+    if(r.status===401){location.href='/login';return}
+    const d=await r.json();
+
+    // Sync status
+    const age=Date.now()-d.timestamp;
+    const dot=document.getElementById('footerDot');
+    const ss=document.getElementById('footerStatus');
+    if(age<15000){dot.className='status-dot';ss.textContent='실시간'}
+    else if(age<60000){dot.className='status-dot';ss.textContent=`${Math.floor(age/1000)}초 전`}
+    else{dot.className='status-dot offline';ss.textContent='오프라인'}
+
+    const sessions=d.activeSessions||[];
+    lastSessions=sessions;
+    const wk=sessions.filter(s=>s.status==='working').length;
+    const wt=sessions.filter(s=>s.status==='waiting').length;
+    const idle=sessions.filter(s=>s.status==='idle'||!s.status).length;
+    const tt=sessions.reduce((sum,s)=>{const t=s.tokenUsage;return sum+(t?(t.input||0)+(t.output||0)+(t.cacheCreation||0)+(t.cacheRead||0):0)},0);
+
+    // Overview stats
+    document.getElementById('workingCount').textContent=wk;
+    document.getElementById('waitingCount').textContent=wt;
+    document.getElementById('idleCount').textContent=idle;
+    document.getElementById('totalTokens').textContent=fmtT(tt);
+    document.getElementById('navSessionCount').textContent=sessions.length;
+
+    // Session table
+    const open=new Set();
+    document.querySelectorAll('.detail-row.open').forEach(el=>open.add(el.id.replace('det-','')));
+    const tb=document.getElementById('sessionTable');
+    const order={working:0,waiting:1,idle:2};
+    sessions.sort((a,b)=>(order[a.status]??2)-(order[b.status]??2));
+    tb.innerHTML=sessions.length?sessions.map(renderSession).join(''):'<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-dim)">활성 세션 없음</td></tr>';
+    for(const sid of open){const el=document.getElementById('det-'+sid);if(el)el.classList.add('open')}
+
+    // Logs
+    renderLogs(d.recentHistory||[]);
+  }catch(e){console.error(e)}
+}
+
+refresh();setInterval(refresh,5000);
+
+// ─── Create Expert Modal ───
+const AVAILABLE_COLORS=[
+  {name:'blue',hex:'#3b82f6'},{name:'red',hex:'#ef4444'},{name:'cyan',hex:'#06b6d4'},
+  {name:'green',hex:'#22c55e'},{name:'yellow',hex:'#eab308'},{name:'purple',hex:'#8b5cf6'},
+  {name:'orange',hex:'#f97316'},{name:'pink',hex:'#ec4899'},{name:'teal',hex:'#14b8a6'},
+];
+const AVAILABLE_TOOLS=['Read','Write','Edit','Glob','Grep','Bash','WebSearch','WebFetch'];
+let selectedColor='blue';
+let selectedTools=new Set(['Read','Glob','Grep','Bash']);
+
+function openCreateModal(){
+  selectedColor='blue';
+  selectedTools=new Set(['Read','Glob','Grep','Bash']);
+
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay';
+  overlay.innerHTML=`<div class="modal" style="width:min(520px,90vw)">
+    <div class="modal-header"><h3>전문가 추가</h3><button class="modal-close" onclick="closeModal(this)">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">이름 (영문)</label>
+          <input class="form-input" id="cf-id" placeholder="예: marketing-expert">
+          <div class="form-hint">파일명이 됩니다 (영문, 하이픈)</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">표시 이름</label>
+          <input class="form-input" id="cf-name" placeholder="예: 마케팅 전문가">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">역할 (한 줄)</label>
+        <input class="form-input" id="cf-role" placeholder="예: 마케팅 전략 및 그로스 해킹 전문가">
+      </div>
+      <div class="form-group">
+        <label class="form-label">상세 설명</label>
+        <textarea class="form-textarea" id="cf-desc" placeholder="이 전문가가 무엇을 잘하는지, 어떤 상황에서 부르는지 설명해주세요"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">디스코드 채널명</label>
+        <input class="form-input" id="cf-channel" placeholder="예: 마케팅">
+        <div class="form-hint">이 이름의 디스코드 채널에서 전문가가 자동 대답</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">트리거 키워드 (쉼표 구분)</label>
+        <input class="form-input" id="cf-triggers" placeholder="예: 마케팅, 광고, 그로스, 전환율">
+      </div>
+      <div class="form-group">
+        <label class="form-label">핵심 역할 (줄바꿈 구분)</label>
+        <textarea class="form-textarea" id="cf-resp" placeholder="마케팅 전략 수립\n광고 성과 분석\n그로스 해킹 제안"></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">색상</label>
+          <div class="color-options" id="cf-colors"></div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">모델</label>
+          <select class="form-select" id="cf-model">
+            <option value="sonnet">Sonnet (빠름, 추천)</option>
+            <option value="opus">Opus (똑똑, 느림)</option>
+            <option value="haiku">Haiku (가장 빠름)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">사용 가능 도구</label>
+        <div class="tool-checkboxes" id="cf-tools"></div>
+        <div class="form-hint">전문가가 사용할 수 있는 Claude Code 도구</div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-ghost" onclick="closeModal(this)">취소</button>
+        <button class="btn-primary" onclick="submitExpert(this)">전문가 생성</button>
+      </div>
+    </div>
+  </div>`;
+  overlay.addEventListener('click',e=>{if(e.target===overlay)closeModal(overlay.querySelector('.modal-close'))});
+  document.body.appendChild(overlay);
+
+  // Render color options
+  const colDiv=document.getElementById('cf-colors');
+  colDiv.innerHTML=AVAILABLE_COLORS.map(c=>
+    `<div class="color-opt${c.name===selectedColor?' selected':''}" style="background:${c.hex}" data-color="${c.name}" onclick="pickColor(this,'${c.name}')"></div>`
+  ).join('');
+
+  // Render tool checkboxes
+  const toolDiv=document.getElementById('cf-tools');
+  toolDiv.innerHTML=AVAILABLE_TOOLS.map(t=>
+    `<div class="tool-check${selectedTools.has(t)?' on':''}" onclick="toggleTool(this,'${t}')">${t}</div>`
+  ).join('');
+}
+
+function pickColor(el,color){
+  selectedColor=color;
+  el.closest('.color-options').querySelectorAll('.color-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+function toggleTool(el,tool){
+  if(selectedTools.has(tool)){selectedTools.delete(tool);el.classList.remove('on')}
+  else{selectedTools.add(tool);el.classList.add('on')}
+}
+
+async function submitExpert(btn){
+  const id=document.getElementById('cf-id').value.trim();
+  const name=document.getElementById('cf-name').value.trim();
+  const role=document.getElementById('cf-role').value.trim();
+  const desc=document.getElementById('cf-desc').value.trim();
+  const channel=document.getElementById('cf-channel').value.trim();
+  const triggers=document.getElementById('cf-triggers').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const resp=document.getElementById('cf-resp').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const model=document.getElementById('cf-model').value;
+
+  if(!id||!name||!role){alert('이름, 표시이름, 역할은 필수입니다');return}
+
+  btn.textContent='프롬프트 생성 중... (30초 소요)';btn.disabled=true;
+
+  try{
+    const r=await fetch('/api/agents',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id,name,role,description:desc,channel,triggers,responsibilities:resp,color:selectedColor,model,tools:[...selectedTools]})
+    });
+    const d=await r.json();
+    if(d.ok){
+      closeModal(btn);
+      // Add to local EXPERTS list
+      const hex=AVAILABLE_COLORS.find(c=>c.name===selectedColor)?.hex||'#22c55e';
+      EXPERTS.push({id,name,role,color:hex,triggers,desc:desc||role,tools:[...selectedTools],
+        discord:`#${channel||id} 에 메시지 보내기`,file:`~/.claude/agents/${id}.md`});
+      renderOffice();
+    }else{alert('생성 실패: '+(d.error||'알 수 없는 에러'))}
+  }catch(e){alert('에러: '+e.message)}
+}
+
+// ─── 2D Office: Agent Data ───
+const EXPERTS=[
+  {id:'architect',name:'Architect',role:'시스템 설계 전문가',color:'#3b82f6',
+   triggers:['설계해줘','아키텍처','구조 잡아줘','시스템 디자인'],
+   desc:'프로젝트 구조 설계, 기술 스택 추천, API 설계, 확장성 평가를 담당합니다.',
+   tools:['Read','Glob','Grep','Bash','Write','WebSearch'],
+   discord:'!ask architect "이 프로젝트 구조 어때?"',
+   file:'~/.claude/agents/architect.md'},
+  {id:'debugger',name:'Debugger',role:'디버깅 전문가',color:'#ef4444',
+   triggers:['버그','에러','안 돼','왜 안 되지','오류'],
+   desc:'에러 분석, 스택 트레이스 해석, 근본 원인 추적, 최소 침습 수정을 담당합니다.',
+   tools:['Read','Glob','Grep','Bash'],
+   discord:'!ask debugger "이 에러 왜 나지?"',
+   file:'~/.claude/agents/debugger.md'},
+  {id:'researcher',name:'Researcher',role:'리서치 전문가',color:'#06b6d4',
+   triggers:['조사해줘','비교해줘','리서치','뭐가 좋아?'],
+   desc:'기술 비교, 트렌드 조사, 공식 문서 요약, 비용/성능 분석을 담당합니다.',
+   tools:['WebSearch','WebFetch','Read','Glob','Grep'],
+   discord:'!ask researcher "Next.js vs Remix 비교"',
+   file:'~/.claude/agents/researcher.md'},
+  {id:'deployer',name:'Deployer',role:'배포 전문가',color:'#22c55e',
+   triggers:['배포','deploy','Railway','서버 올려','빌드'],
+   desc:'Railway/Vercel 배포, CI/CD, 환경변수 관리, 빌드 에러 해결을 담당합니다.',
+   tools:['Read','Glob','Grep','Bash','Write'],
+   discord:'!ask deployer "Railway에 배포해줘"',
+   file:'~/.claude/agents/deployer.md'},
+  {id:'reviewer',name:'Reviewer',role:'코드 리뷰 전문가',color:'#eab308',
+   triggers:['리뷰해줘','코드 봐줘','개선해줘','리팩토링'],
+   desc:'코드 품질 리뷰, 보안 검사, 성능 이슈 식별, 리팩토링 제안을 담당합니다.',
+   tools:['Read','Glob','Grep','Bash'],
+   discord:'!ask reviewer "이 코드 리뷰해줘"',
+   file:'~/.claude/agents/reviewer.md'},
+  {id:'docs-guide',name:'Docs Guide',role:'문서 가이드',color:'#06b6d4',
+   triggers:['docs','문서 찾아줘','공식 문서','라이브러리 사용법'],
+   desc:'라이브러리/프레임워크 공식 문서를 찾아 설명해주는 기존 에이전트입니다.',
+   tools:['WebFetch','WebSearch','Read','Glob','Grep'],
+   discord:'!ask docs-guide "React 19 새 기능"',
+   file:'~/.claude/agents/docs-guide.md'},
+  {id:'growth-analyst',name:'Growth Analyst',role:'성장 분석가',color:'#22c55e',
+   triggers:['성장 리포트','레벨 체크','성장 분석'],
+   desc:'Claude Code 활용 세션을 분석하여 성장 리포트를 생성하는 기존 에이전트입니다.',
+   tools:['Read','Grep','Glob','Bash','Write'],
+   discord:'!ask growth-analyst "성장 리포트 만들어줘"',
+   file:'~/.claude/agents/growth-analyst.md'},
+];
+
+// ─── Pixel Art Generator ───
+function drawPixelChar(color){
+  const c=document.createElement('canvas');
+  c.width=16;c.height=16;
+  const x=c.getContext('2d');
+  // Head
+  x.fillStyle=color;
+  x.fillRect(5,1,6,5);
+  // Eyes
+  x.fillStyle='#fff';
+  x.fillRect(6,3,2,1);
+  x.fillRect(9,3,2,1);
+  x.fillStyle='#111';
+  x.fillRect(7,3,1,1);
+  x.fillRect(10,3,1,1);
+  // Body
+  x.fillStyle=color;
+  x.fillRect(4,6,8,5);
+  // Belt/detail
+  x.fillStyle=lighten(color);
+  x.fillRect(4,8,8,1);
+  // Arms
+  x.fillStyle=color;
+  x.fillRect(2,7,2,4);
+  x.fillRect(12,7,2,4);
+  // Legs
+  x.fillStyle=darken(color);
+  x.fillRect(5,11,3,3);
+  x.fillRect(9,11,3,3);
+  // Feet
+  x.fillStyle='#333';
+  x.fillRect(4,14,4,2);
+  x.fillRect(9,14,4,2);
+  // Crown/hat accent
+  x.fillStyle=lighten(color);
+  x.fillRect(6,0,4,1);
+  return c.toDataURL();
+}
+function lighten(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return`rgb(${Math.min(255,r+60)},${Math.min(255,g+60)},${Math.min(255,b+60)})`;
+}
+function darken(hex){
+  const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+  return`rgb(${Math.max(0,r-40)},${Math.max(0,g-40)},${Math.max(0,b-40)})`;
+}
+
+// ─── Render Office ───
+async function renderOffice(){
+  const floor=document.getElementById('officeFloor');
+  if(!floor)return;
+
+  // Load from API and merge with local EXPERTS
+  try{
+    const r=await fetch('/api/agents');
+    const apiAgents=await r.json();
+    // Add any API agents not already in EXPERTS
+    for(const a of apiAgents){
+      if(!EXPERTS.find(e=>e.id===a.name)){
+        const hex=({blue:'#3b82f6',red:'#ef4444',cyan:'#06b6d4',green:'#22c55e',yellow:'#eab308',purple:'#8b5cf6',orange:'#f97316',pink:'#ec4899',teal:'#14b8a6'})[a.color]||'#22c55e';
+        EXPERTS.push({id:a.name,name:a.title||a.name,role:a.subtitle||'Agent',color:hex,triggers:[],desc:'',tools:[],discord:`#${a.name}`,file:`~/.claude/agents/${a.file}`});
+      }
+    }
+  }catch(e){}
+
+  floor.innerHTML=EXPERTS.map(e=>{
+    const img=drawPixelChar(e.color);
+    return`<div class="agent-desk" onclick="openAgentPanel('${e.id}')">
+      <div class="desk-status online"></div>
+      <img class="pixel-char" src="${img}" alt="${e.name}">
+      <div class="agent-name">${e.name}</div>
+      <div class="agent-role">${e.role}</div>
+      <span class="agent-tag" style="background:${e.color}20;color:${e.color};border:1px solid ${e.color}30">Agent</span>
+    </div>`;
+  }).join('');
+}
+
+// ─── Agent Detail Panel ───
+function ensurePanel(){
+  if(document.getElementById('agentPanel'))return;
+  const panel=document.createElement('div');
+  panel.className='agent-panel';
+  panel.id='agentPanel';
+  panel.innerHTML=`<div class="agent-panel-header" id="apHeader"></div><div class="agent-panel-body" id="apBody"></div>`;
+  document.body.appendChild(panel);
+  // Close on outside click
+  document.addEventListener('click',e=>{
+    if(panel.classList.contains('open')&&!panel.contains(e.target)&&!e.target.closest('.agent-desk'))
+      panel.classList.remove('open');
+  });
+}
+
+function openAgentPanel(id){
+  ensurePanel();
+  const e=EXPERTS.find(x=>x.id===id);
+  if(!e)return;
+  const img=drawPixelChar(e.color);
+  document.getElementById('apHeader').innerHTML=`
+    <img class="pixel-char" src="${img}" style="width:48px;height:48px">
+    <div>
+      <div style="font-size:16px;font-weight:700;color:var(--text-bright)">${e.name}</div>
+      <div style="font-size:11px;color:var(--text-dim)">${e.role}</div>
+    </div>
+    <button class="agent-panel-close" onclick="document.getElementById('agentPanel').classList.remove('open')">&times;</button>`;
+  document.getElementById('apBody').innerHTML=`
+    <div class="agent-panel-section">
+      <div class="aps-title">소개</div>
+      <div class="aps-body">${e.desc}</div>
+    </div>
+    <div class="agent-panel-section">
+      <div class="aps-title">트리거 키워드</div>
+      <div class="trigger-list">${e.triggers.map(t=>`<span class="trigger-tag">${esc(t)}</span>`).join('')}</div>
+    </div>
+    <div class="agent-panel-section">
+      <div class="aps-title">사용 가능 도구</div>
+      <div class="trigger-list">${e.tools.map(t=>`<span class="trigger-tag" style="color:var(--green)">${t}</span>`).join('')}</div>
+    </div>
+    <div class="agent-panel-section">
+      <div class="aps-title">파일 위치</div>
+      <div class="aps-body"><code>${e.file}</code></div>
+    </div>
+    <div class="agent-panel-section">
+      <div class="aps-title">Discord 사용법</div>
+      <div class="discord-hint">
+        <div class="dh-title">Discord에서 이 전문가에게 질문하기</div>
+        <div class="dh-cmd">${esc(e.discord)}</div>
+      </div>
+    </div>
+    <div class="agent-panel-section">
+      <div class="aps-title">호출 예시 (Claude Code)</div>
+      <div class="aps-body" style="font-family:var(--mono);font-size:11px;background:var(--bg);padding:10px;border-radius:6px;color:var(--green)">
+        "이 프로젝트를 ${e.name}한테 물어봐줘"
+      </div>
+    </div>`;
+  document.getElementById('agentPanel').classList.add('open');
+}
+
+</script>
+</body>
+</html>
