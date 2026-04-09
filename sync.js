@@ -66,8 +66,25 @@ function getSessionStatus(sessionId) {
       let toolsUsed = [];
       let messageCount = { user: 0, assistant: 0 };
       let recentActions = [];
+      let tokenUsage = { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 };
 
-      // Parse last 50 entries for status
+      // Parse all entries for token totals, last 50 for detailed status
+      for (const line of lines) {
+        try {
+          const d = JSON.parse(line);
+          if (d.type === 'assistant') {
+            let msg = d.message;
+            if (typeof msg === 'string') msg = JSON.parse(msg);
+            if (msg.usage) {
+              tokenUsage.input += msg.usage.input_tokens || 0;
+              tokenUsage.output += msg.usage.output_tokens || 0;
+              tokenUsage.cacheCreation += msg.usage.cache_creation_input_tokens || 0;
+              tokenUsage.cacheRead += msg.usage.cache_read_input_tokens || 0;
+            }
+          }
+        } catch {}
+      }
+
       const recent = lines.slice(-50);
       for (const line of recent) {
         try {
@@ -130,7 +147,8 @@ function getSessionStatus(sessionId) {
         messageCount,
         toolSummary,
         recentActions: recentActions.slice(-10),
-        totalEntries: lines.length
+        totalEntries: lines.length,
+        tokenUsage
       };
     } catch {}
   }

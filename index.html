@@ -3,409 +3,577 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Claude Dashboard</title>
+<title>Claude Office</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0d1117;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#c9d1d9;height:100vh;display:flex;flex-direction:column}
 
-  .header {
-    background: #161b22; border-bottom: 1px solid #30363d; padding: 14px 28px;
-    display: flex; align-items: center; justify-content: space-between;
-    position: sticky; top: 0; z-index: 100;
-  }
-  .header h1 { font-size: 18px; font-weight: 600; color: #f0f6fc; }
-  .header h1 span { color: #da7756; }
-  .header-right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #6e7681; }
-  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: #3fb950; display: inline-block; }
-  .sync-dot.stale { background: #d29922; }
-  .sync-dot.offline { background: #f85149; }
+  /* ── Top: 3D ── */
+  #view3d{height:55vh;position:relative;flex-shrink:0}
+  #c{width:100%;height:100%;display:block}
 
-  .main { padding: 20px 28px; }
+  /* HUD overlay on 3D */
+  .hud{position:absolute;top:0;left:0;right:0;z-index:10;pointer-events:none}
+  .hud-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:linear-gradient(180deg,rgba(0,0,0,0.45) 0%,transparent 100%)}
+  .hud-title{font-size:15px;font-weight:700;color:#fff}.hud-title span{color:#da7756}
+  .hud-title .sub{font-size:9px;color:rgba(255,255,255,0.4);margin-left:6px;font-weight:400}
+  .hud-stats{display:flex;gap:16px}
+  .hud-stat{text-align:center}
+  .hud-stat .val{font-size:16px;font-weight:700;color:#fff}
+  .hud-stat .lbl{font-size:7px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:1px}
+  .hud-stat.working .val{color:#3fb950}
+  .hud-stat.waiting .val{color:#d29922}
+  .sync-indicator{display:flex;align-items:center;gap:5px;font-size:10px;color:rgba(255,255,255,0.4)}
+  .sync-dot{width:6px;height:6px;border-radius:50%;background:#3fb950}
+  .sync-dot.stale{background:#d29922}.sync-dot.offline{background:#f85149}
 
-  /* Summary cards */
-  .summary { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
-  .stat {
-    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-    padding: 14px 20px; min-width: 130px; flex: 1;
-  }
-  .stat .num { font-size: 28px; font-weight: 700; color: #f0f6fc; }
-  .stat .label { font-size: 11px; color: #8b949e; margin-top: 2px; }
-  .stat.working .num { color: #3fb950; }
-  .stat.idle .num { color: #8b949e; }
+  /* Notifications */
+  .notifications{position:absolute;top:50px;right:12px;z-index:20;display:flex;flex-direction:column;gap:6px;pointer-events:auto}
+  .notification{background:rgba(22,27,34,0.95);border:1px solid rgba(210,153,34,0.5);border-radius:10px;padding:10px 13px;min-width:240px;max-width:300px;backdrop-filter:blur(10px);cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.3);animation:ni .3s ease-out;transition:transform .2s,opacity .3s}
+  .notification:hover{transform:translateX(-2px)}
+  .notification.dismissing{opacity:0;transform:translateX(60px)}
+  .notif-header{display:flex;align-items:center;gap:6px;margin-bottom:4px}
+  .notif-avatar{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,#da7756,#d29922);display:flex;align-items:center;justify-content:center;font-size:10px;animation:np 2s infinite}
+  .notif-name{font-weight:600;color:#f0f6fc;font-size:11px}
+  .notif-badge{font-size:8px;background:rgba(210,153,34,0.2);color:#d29922;padding:2px 6px;border-radius:6px;font-weight:600;margin-left:auto}
+  .notif-body{font-size:10px;color:#c9d1d9;line-height:1.4}
+  .notif-body .msg{color:#79c0ff;margin-top:2px}
+  .notif-time{font-size:8px;color:#6e7681;margin-top:3px}
+  @keyframes ni{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+  @keyframes np{0%,100%{box-shadow:0 0 0 0 rgba(210,153,34,0.4)}50%{box-shadow:0 0 0 5px rgba(210,153,34,0)}}
 
-  /* Session table */
-  .table-wrap {
-    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
-    overflow: hidden; margin-bottom: 24px;
-  }
-  .table-title {
-    padding: 12px 16px; font-size: 13px; font-weight: 600; color: #8b949e;
-    border-bottom: 1px solid #21262d; text-transform: uppercase; letter-spacing: 0.5px;
-  }
-  table { width: 100%; border-collapse: collapse; }
-  th {
-    text-align: left; padding: 10px 16px; font-size: 11px; font-weight: 600;
-    color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px;
-    border-bottom: 1px solid #21262d; background: #0d111780;
-  }
-  td { padding: 12px 16px; font-size: 13px; border-bottom: 1px solid #21262d; vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover { background: #1c2128; }
+  /* ── Divider ── */
+  #divider{height:4px;background:#21262d;cursor:row-resize;flex-shrink:0;position:relative}
+  #divider:hover,#divider.dragging{background:#da7756}
+  #divider::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:40px;height:2px;background:#6e7681;border-radius:2px}
 
-  .status-badge {
-    display: inline-flex; align-items: center; gap: 5px;
-    font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px;
-  }
-  .status-badge.working { background: #23863620; color: #3fb950; }
-  .status-badge.waiting { background: #d2992220; color: #d29922; }
-  .status-badge.idle { background: #484f5820; color: #8b949e; }
-  .status-badge .pulse {
-    width: 6px; height: 6px; border-radius: 50%; background: currentColor;
-  }
-  .status-badge.working .pulse { animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-  .project-name { font-weight: 600; color: #f0f6fc; }
-  .project-path { font-size: 10px; color: #6e7681; font-family: monospace; margin-top: 2px; }
-  .branch { background: #1f2937; color: #79c0ff; padding: 1px 6px; border-radius: 4px; font-size: 11px; font-family: monospace; }
-  .commit-info { font-size: 11px; color: #8b949e; }
-  .commit-hash { color: #da7756; font-family: monospace; }
-  .changed-count { color: #d29922; font-weight: 600; }
-
-  .last-action {
-    font-size: 12px; color: #c9d1d9; max-width: 300px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .last-user-msg {
-    font-size: 11px; color: #79c0ff; margin-top: 4px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px;
-  }
-  .tools-used {
-    display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px;
-  }
-  .tool-tag {
-    font-size: 9px; padding: 1px 6px; border-radius: 4px;
-    background: #21262d; color: #8b949e; font-family: monospace;
-  }
-
-  .time-ago { font-size: 11px; color: #6e7681; }
-  .uptime { font-size: 11px; color: #6e7681; }
-  .msg-count { font-size: 11px; color: #6e7681; }
-
-  /* Recent activity */
-  .activity-wrap {
-    background: #161b22; border: 1px solid #30363d; border-radius: 10px;
-    overflow: hidden;
-  }
-  .activity-item {
-    display: flex; gap: 12px; padding: 8px 16px; border-bottom: 1px solid #21262d;
-    font-size: 12px; align-items: center;
-  }
-  .activity-item:last-child { border-bottom: none; }
-  .activity-time { min-width: 60px; color: #6e7681; font-size: 11px; }
-  .activity-project { color: #da7756; font-weight: 600; min-width: 100px; font-size: 11px; }
-  .activity-text { color: #c9d1d9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  .empty { text-align: center; padding: 40px; color: #6e7681; font-size: 13px; }
+  /* ── Bottom: Dashboard ── */
+  #dashboard{flex:1;overflow-y:auto;background:#0d1117;min-height:0}
+  .table-wrap{background:#0d1117;border-top:1px solid #21262d}
+  .table-title{padding:10px 16px;font-size:12px;font-weight:600;color:#8b949e;border-bottom:1px solid #21262d;text-transform:uppercase;letter-spacing:.5px;position:sticky;top:0;background:#0d1117;z-index:5}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;padding:8px 14px;font-size:10px;font-weight:600;color:#6e7681;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid #21262d;background:#0d111780;position:sticky;top:36px;z-index:4}
+  td{padding:10px 14px;font-size:12px;border-bottom:1px solid #21262d;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  tr:hover{background:#1c2128}
+  .status-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px}
+  .status-badge.working{background:#23863620;color:#3fb950}
+  .status-badge.waiting{background:#d2992220;color:#d29922}
+  .status-badge.idle{background:#484f5820;color:#8b949e}
+  .status-badge .pulse{width:5px;height:5px;border-radius:50%;background:currentColor}
+  .status-badge.working .pulse{animation:pu 1.5s infinite}
+  @keyframes pu{0%,100%{opacity:1}50%{opacity:.3}}
+  .project-name{font-weight:600;color:#f0f6fc;font-size:13px}
+  .project-path{font-size:9px;color:#6e7681;font-family:monospace;margin-top:1px}
+  .branch{background:#1f2937;color:#79c0ff;padding:1px 5px;border-radius:3px;font-size:10px;font-family:monospace}
+  .last-action{font-size:11px;color:#c9d1d9;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .last-user-msg{font-size:10px;color:#79c0ff;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
+  .tools-used{display:flex;gap:3px;flex-wrap:wrap;margin-top:3px}
+  .tool-tag{font-size:8px;padding:1px 5px;border-radius:3px;background:#21262d;color:#8b949e;font-family:monospace}
+  .token-total{font-size:11px;color:#f0f6fc;font-weight:600;font-family:monospace}
+  .changed-count{color:#d29922;font-weight:600}
+  .time-ago{font-size:10px;color:#6e7681}
+  .uptime{font-size:10px;color:#6e7681}
+  .empty{text-align:center;padding:30px;color:#6e7681;font-size:12px}
 
   /* Detail panel */
-  .detail-row { display: none; }
-  .detail-row.open { display: table-row; }
-  .detail-row td { padding: 0; }
-  .detail-content {
-    padding: 12px 16px; background: #0d111780;
-  }
-  .detail-section { margin-bottom: 12px; }
-  .detail-section-title { font-size: 11px; font-weight: 600; color: #6e7681; margin-bottom: 6px; text-transform: uppercase; }
-  .action-item {
-    font-size: 12px; padding: 4px 0; display: flex; gap: 8px; align-items: baseline;
-  }
-  .action-item .action-type { font-size: 10px; font-weight: 600; min-width: 50px; }
-  .action-item .action-type.tool { color: #da7756; }
-  .action-item .action-type.msg { color: #3fb950; }
-  .action-item .action-detail { color: #c9d1d9; }
-  .file-list { font-size: 11px; font-family: monospace; }
-  .file-list div { padding: 2px 0; }
-  .file-status { display: inline-block; width: 14px; font-weight: 700; }
-  .file-status.M { color: #d29922; }
-  .file-status.A { color: #3fb950; }
-  .file-status.D { color: #f85149; }
-  .file-status.Q { color: #f85149; }
-
-  /* ── Responsive ── */
-  @media (max-width: 900px) {
-    .main { padding: 14px 16px; }
-    .header { padding: 12px 16px; }
-    .header h1 { font-size: 16px; }
-
-    .summary { gap: 8px; }
-    .stat { min-width: 0; padding: 10px 14px; }
-    .stat .num { font-size: 22px; }
-
-    /* Table → Card layout */
-    .table-wrap { overflow: visible; }
-    table, thead, tbody, th, td, tr { display: block; }
-    thead { display: none; }
-
-    tr[onclick] {
-      border: 1px solid #30363d; border-radius: 10px;
-      margin-bottom: 10px; padding: 14px; background: #161b22;
-    }
-    tr[onclick]:hover { background: #1c2128; }
-    td { padding: 4px 0; border: none; }
-
-    /* Label each cell */
-    td:nth-child(1) { margin-bottom: 8px; }
-    td:nth-child(3)::before { content: '브랜치: '; font-size: 10px; color: #6e7681; }
-    td:nth-child(5) { display: inline-block; margin-right: 12px; }
-    td:nth-child(5)::before { content: '변경: '; font-size: 10px; color: #6e7681; }
-    td:nth-child(6) { display: inline-block; margin-right: 12px; }
-    td:nth-child(6)::before { content: '활동: '; font-size: 10px; color: #6e7681; }
-    td:nth-child(7) { display: inline-block; }
-    td:nth-child(7)::before { content: 'Uptime: '; font-size: 10px; color: #6e7681; }
-
-    .last-action { max-width: 100%; white-space: normal; }
-    .last-user-msg { max-width: 100%; white-space: normal; }
-    .project-path { word-break: break-all; }
-
-    .detail-row.open { margin-top: -10px; margin-bottom: 10px; border: 1px solid #30363d; border-top: none; border-radius: 0 0 10px 10px; }
-    .detail-row td { padding: 0; }
-
-    .activity-item { flex-wrap: wrap; padding: 8px 12px; }
-    .activity-time { min-width: 50px; }
-    .activity-project { min-width: 80px; }
-    .activity-text { width: 100%; margin-top: 2px; white-space: normal; }
-  }
-
-  @media (max-width: 480px) {
-    .header { flex-direction: column; gap: 8px; align-items: flex-start; }
-    .summary { flex-wrap: wrap; }
-    .stat { min-width: calc(50% - 4px); flex: none; }
-    .stat .num { font-size: 20px; }
-    .stat .label { font-size: 10px; }
-  }
+  .detail-row{display:none}
+  .detail-row.open{display:table-row}
+  .detail-content{padding:10px 14px;background:#0d111780}
+  .detail-section{margin-bottom:10px}
+  .detail-section-title{font-size:10px;font-weight:600;color:#6e7681;margin-bottom:4px;text-transform:uppercase}
+  .commit-info{font-size:10px;color:#8b949e}
+  .commit-hash{color:#da7756;font-family:monospace}
+  .file-list{font-size:10px;font-family:monospace}
+  .file-list div{padding:1px 0}
+  .file-status{display:inline-block;width:12px;font-weight:700}
+  .file-status.M{color:#d29922}.file-status.A{color:#3fb950}.file-status.D,.file-status.Q{color:#f85149}
+  .action-item{font-size:11px;padding:2px 0;display:flex;gap:6px}
+  .action-type{font-size:9px;font-weight:600;min-width:45px}
+  .action-type.tool{color:#da7756}.action-type.msg{color:#3fb950}
+  .token-bar{display:flex;gap:8px;flex-wrap:wrap}
+  .token-item{font-size:9px;color:#8b949e}.token-item span{font-weight:600}
+  .token-item.input span{color:#79c0ff}.token-item.output span{color:#3fb950}.token-item.cache span{color:#d29922}
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1><span>Claude</span> Dashboard</h1>
-  <div class="header-right">
-    <span class="sync-dot" id="syncDot"></span>
-    <span id="syncStatus">연결 중...</span>
-    <span id="lastUpdate"></span>
-  </div>
+<!-- 3D View -->
+<div id="view3d">
+  <canvas id="c"></canvas>
+  <div class="hud"><div class="hud-bar">
+    <div class="hud-title"><span>CLAUDE</span> OFFICE<span class="sub">Virtual HQ</span></div>
+    <div class="hud-stats" id="hudStats"></div>
+    <div class="sync-indicator"><span class="sync-dot" id="syncDot"></span><span id="syncStatus">연결 중...</span></div>
+  </div></div>
+  <div class="notifications" id="notifications"></div>
 </div>
 
-<div class="main">
-  <div class="summary" id="summary"></div>
+<!-- Draggable Divider -->
+<div id="divider"></div>
 
+<!-- Dashboard Table -->
+<div id="dashboard">
   <div class="table-wrap">
     <div class="table-title">세션 현황</div>
-    <table>
-      <thead>
-        <tr>
-          <th>상태</th>
-          <th>프로젝트</th>
-          <th>브랜치</th>
-          <th>최근 작업</th>
-          <th>변경</th>
-          <th>활동</th>
-          <th>Uptime</th>
-        </tr>
-      </thead>
-      <tbody id="sessionTable"></tbody>
-    </table>
-  </div>
-
-  <div class="activity-wrap">
-    <div class="table-title">최근 활동 타임라인</div>
-    <div id="activityList"></div>
+    <table><thead><tr>
+      <th>상태</th><th>프로젝트</th><th>브랜치</th><th>최근 작업</th><th>토큰</th><th>변경</th><th>활동</th><th>Uptime</th>
+    </tr></thead><tbody id="sessionTable"></tbody></table>
   </div>
 </div>
 
-<script>
-function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.162.0/examples/jsm/"}}</script>
+<script type="module">
+import*as T from'three';
+import{OrbitControls}from'three/addons/controls/OrbitControls.js';
 
-function timeAgo(ms) {
-  if (ms < 10000) return '방금';
-  if (ms < 60000) return `${Math.floor(ms/1000)}초 전`;
-  if (ms < 3600000) return `${Math.floor(ms/60000)}분 전`;
-  if (ms < 86400000) return `${Math.floor(ms/3600000)}시간 전`;
-  return `${Math.floor(ms/86400000)}일 전`;
+// ─── Divider drag ───
+const divider=document.getElementById('divider');
+const view3d=document.getElementById('view3d');
+const dashboard=document.getElementById('dashboard');
+let dragging=false;
+divider.addEventListener('mousedown',()=>{dragging=true;divider.classList.add('dragging');document.body.style.cursor='row-resize'});
+window.addEventListener('mousemove',e=>{if(!dragging)return;const topH=Math.max(120,Math.min(window.innerHeight-100,e.clientY));view3d.style.height=topH+'px';onResize()});
+window.addEventListener('mouseup',()=>{if(dragging){dragging=false;divider.classList.remove('dragging');document.body.style.cursor=''}});
+
+// ─── 3D Scene ───
+let scene,cam,ren,ctrl,clk,avatarGroup=new T.Group(),avatarMap=new Map(),ray=new T.Raycaster(),mouse=new T.Vector2(),notified=new Set();
+const C={working:0x3fb950,waiting:0xd29922,idle:0x6e7681};
+
+function init(){
+  clk=new T.Clock();
+  scene=new T.Scene();
+  scene.background=new T.Color(0xc8d0d8);
+
+  const box=document.getElementById('view3d');
+  const w=box.clientWidth,h=box.clientHeight;
+  cam=new T.PerspectiveCamera(50,w/h,0.5,100);
+  cam.position.set(10,12,16);
+
+  const cv=document.getElementById('c');
+  ren=new T.WebGLRenderer({canvas:cv,antialias:true});
+  ren.setSize(w,h);
+  ren.setPixelRatio(Math.min(devicePixelRatio,1.5));
+
+  ctrl=new OrbitControls(cam,ren.domElement);
+  ctrl.enableDamping=true;ctrl.dampingFactor=0.08;
+  ctrl.maxPolarAngle=Math.PI/2.1;ctrl.minDistance=4;ctrl.maxDistance=30;
+  ctrl.target.set(0,1,0);
+
+  // Bright lighting (no shadows)
+  scene.add(new T.AmbientLight(0xffffff,0.75));
+  const sun=new T.DirectionalLight(0xfff8f0,0.7);sun.position.set(8,15,6);scene.add(sun);
+  const fill=new T.DirectionalLight(0xeef4ff,0.3);fill.position.set(-6,8,-4);scene.add(fill);
+
+  buildOffice();
+  scene.add(avatarGroup);
+
+  window.addEventListener('resize',onResize);
+  ren.domElement.addEventListener('click',on3DClick);
 }
 
-function formatUptime(ms) {
-  const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+function onResize(){
+  const box=document.getElementById('view3d');
+  const w=box.clientWidth,h=box.clientHeight;
+  if(w>0&&h>0){cam.aspect=w/h;cam.updateProjectionMatrix();ren.setSize(w,h)}
 }
 
-function statusLabel(s) {
-  const map = { working: '작업 중', waiting: '대기 중', idle: '대기' };
-  return map[s] || s || 'idle';
-}
+function buildOffice(){
+  // Floor
+  const floor=new T.Mesh(new T.PlaneGeometry(32,26),new T.MeshStandardMaterial({color:0xd6dbe0,roughness:0.7}));
+  floor.rotation.x=-Math.PI/2;scene.add(floor);
 
-function toggleDetail(sid) {
-  const row = document.getElementById('detail-' + sid);
-  if (row) row.classList.toggle('open');
-}
-
-function renderSession(s) {
-  const status = s.status || 'idle';
-  const git = s.git;
-
-  let mainRow = `<tr onclick="toggleDetail('${s.sessionId}')" style="cursor:pointer">
-    <td>
-      <span class="status-badge ${status}">
-        <span class="pulse"></span>
-        ${statusLabel(status)}
-      </span>
-      ${s.cpu > 1 ? `<div style="font-size:10px;color:#6e7681;margin-top:3px">CPU ${s.cpu.toFixed(1)}%</div>` : ''}
-      ${s.childProcesses?.length ? `<div style="font-size:10px;color:#da7756;margin-top:2px">${s.childProcesses.map(esc).join(', ')}</div>` : ''}
-    </td>
-    <td>
-      <div class="project-name">${esc(s.projectName)}</div>
-      <div class="project-path">${esc(s.cwd)}</div>
-    </td>
-    <td>${git ? `<span class="branch">${esc(git.branch)}</span>` : '-'}</td>
-    <td>
-      <div class="last-action">${esc(s.lastAction || '-')}</div>
-      ${s.lastUserMessage ? `<div class="last-user-msg">"${esc(s.lastUserMessage)}"</div>` : ''}
-      ${s.toolSummary?.length ? `<div class="tools-used">${s.toolSummary.map(t => `<span class="tool-tag">${esc(t)}</span>`).join('')}</div>` : ''}
-    </td>
-    <td>${git?.changedFiles?.length ? `<span class="changed-count">${git.changedFiles.length}개</span>` : '<span style="color:#6e7681">-</span>'}</td>
-    <td><span class="time-ago">${timeAgo(s.lastActivityAgo || s.uptime)}</span></td>
-    <td><span class="uptime">${formatUptime(s.uptime)}</span></td>
-  </tr>`;
-
-  // Detail row (hidden by default, toggled on click)
-  let detailHtml = '<div class="detail-content">';
-
-  // Git info
-  if (git) {
-    detailHtml += `<div class="detail-section">
-      <div class="detail-section-title">Git</div>
-      <div class="commit-info"><span class="commit-hash">${esc(git.lastCommit?.hash)}</span> ${esc(git.lastCommit?.subject)} <span style="color:#6e7681">(${esc(git.lastCommit?.relTime)})</span></div>
-      ${git.totalCommitsToday ? `<div style="font-size:11px;color:#8b949e;margin-top:2px">오늘 커밋: ${git.totalCommitsToday}개</div>` : ''}
-    </div>`;
-
-    if (git.changedFiles?.length) {
-      detailHtml += `<div class="detail-section">
-        <div class="detail-section-title">변경된 파일 (${git.changedFiles.length})</div>
-        <div class="file-list">`;
-      for (const f of git.changedFiles.slice(0, 10)) {
-        const sc = f.status.charAt(0) === '?' ? 'Q' : f.status.charAt(0);
-        detailHtml += `<div><span class="file-status ${sc}">${esc(f.status)}</span> ${esc(f.file)}</div>`;
-      }
-      if (git.changedFiles.length > 10) detailHtml += `<div style="color:#6e7681">+${git.changedFiles.length - 10}개 더</div>`;
-      detailHtml += `</div></div>`;
-    }
+  // Floor grid
+  const gm=new T.LineBasicMaterial({color:0xc0c5cc});
+  for(let i=-16;i<=16;i+=2){
+    scene.add(new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(i,.005,-13),new T.Vector3(i,.005,13)]),gm));
+    if(i>=-13&&i<=13)scene.add(new T.Line(new T.BufferGeometry().setFromPoints([new T.Vector3(-16,.005,i),new T.Vector3(16,.005,i)]),gm));
   }
 
-  // Recent actions
-  if (s.recentActions?.length) {
-    detailHtml += `<div class="detail-section">
-      <div class="detail-section-title">최근 작업 내역</div>`;
-    for (const a of s.recentActions.slice().reverse()) {
-      if (a.type === 'tool') {
-        detailHtml += `<div class="action-item">
-          <span class="action-type tool">${esc(a.name)}</span>
-          <span class="action-detail">${esc(a.detail)}</span>
-        </div>`;
-      } else {
-        detailHtml += `<div class="action-item">
-          <span class="action-type msg">응답</span>
-          <span class="action-detail">${esc(a.text)}</span>
-        </div>`;
-      }
-    }
-    detailHtml += `</div>`;
+  // Walls (NO ceiling)
+  const wm=new T.MeshStandardMaterial({color:0xeef0f3,roughness:0.9});
+  function addMesh(geo,mat,x,y,z){const m=new T.Mesh(geo,mat);m.position.set(x,y,z);scene.add(m);return m}
+  addMesh(new T.BoxGeometry(32,5,.15),wm,0,2.5,-13);
+  addMesh(new T.BoxGeometry(.15,5,26),wm,-16,2.5,0);
+  addMesh(new T.BoxGeometry(.15,5,26),wm,16,2.5,0);
+
+  // Windows with bright sky
+  for(let x=-8;x<=8;x+=8){
+    addMesh(new T.BoxGeometry(5,3,.08),new T.MeshStandardMaterial({color:0xbcc3cc,metalness:0.3}),x,3,-12.9);
+    addMesh(new T.PlaneGeometry(4.6,2.6),new T.MeshBasicMaterial({color:0x88ccee}),x,3,-12.84);
+    const bm=new T.MeshStandardMaterial({color:0xaab0b8});
+    addMesh(new T.BoxGeometry(5,.04,.04),bm,x,3,-12.83);
+    addMesh(new T.BoxGeometry(.04,3,.04),bm,x,3,-12.83);
+    const wl=new T.PointLight(0xaaddff,0.12,7);wl.position.set(x,3,-11);scene.add(wl);
   }
 
-  // Stats
-  detailHtml += `<div class="detail-section">
-    <div class="detail-section-title">통계</div>
-    <div class="msg-count">메시지: 사용자 ${s.messageCount?.user || 0} / Claude ${s.messageCount?.assistant || 0} | PID: ${s.pid}</div>
-  </div>`;
+  // Ceiling lights
+  for(let z=-6;z<=6;z+=6) addMesh(new T.BoxGeometry(8,.06,.3),new T.MeshBasicMaterial({color:0xffffe8}),0,5.5,z);
 
-  detailHtml += '</div>';
+  // Plants
+  [[-14,0,-11],[14,0,-11],[-14,0,9],[14,0,9]].forEach(([px,py,pz])=>{
+    addMesh(new T.CylinderGeometry(.28,.2,.38,6),new T.MeshStandardMaterial({color:0xb08060}),px,.19,pz);
+    addMesh(new T.SphereGeometry(.35,6,6),new T.MeshStandardMaterial({color:0x4ade80}),px,.65,pz);
+  });
 
-  const detailRow = `<tr class="detail-row" id="detail-${s.sessionId}"><td colspan="7">${detailHtml}</td></tr>`;
-
-  return mainRow + detailRow;
+  // Logo
+  const lc=document.createElement('canvas');lc.width=512;lc.height=80;
+  const lx=lc.getContext('2d');
+  lx.font='bold 38px sans-serif';lx.textAlign='center';
+  lx.fillStyle='#da7756';lx.fillText('CLAUDE',190,50);
+  lx.fillStyle='#444';lx.fillText('HQ',360,50);
+  addMesh(new T.PlaneGeometry(4,.6),new T.MeshBasicMaterial({map:new T.CanvasTexture(lc),transparent:true}),0,4.5,-12.85);
 }
 
-async function refresh() {
-  try {
-    const res = await fetch('/api/dashboard');
-    if (res.status === 401) { window.location.href = '/login'; return; }
-    const data = await res.json();
+// ─── Workstation + Avatar ───
+function createWS(s,i,total){
+  const g=new T.Group();
+  g.userData={sid:s.sessionId,session:s};
+  const st=s.status||'idle';
+  const col=C[st]||C.idle;
 
-    // Sync indicator
-    const syncAge = Date.now() - data.timestamp;
-    const dot = document.getElementById('syncDot');
-    const syncStatus = document.getElementById('syncStatus');
-    if (syncAge < 15000) { dot.className = 'sync-dot'; syncStatus.textContent = '실시간'; }
-    else if (syncAge < 60000) { dot.className = 'sync-dot stale'; syncStatus.textContent = `${Math.floor(syncAge/1000)}초 전`; }
-    else { dot.className = 'sync-dot offline'; syncStatus.textContent = '오프라인'; }
-    document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('ko-KR');
+  // 2-row layout
+  const cols=Math.ceil(total/2);
+  const row=i<cols?0:1;
+  const ci=row===0?i:i-cols;
+  const sp=3.2;
+  const ox=-(Math.min(cols,total)-1)*sp/2;
+  g.position.set(ox+ci*sp, 0, row===0?-2.5:2.5);
+  const fd=row===0?1:-1;
 
-    // Summary
-    const sessions = data.activeSessions || [];
-    const working = sessions.filter(s => s.status === 'working').length;
-    const waiting = sessions.filter(s => s.status === 'waiting').length;
-    const idle = sessions.filter(s => s.status === 'idle' || !s.status).length;
-    const totalChanges = sessions.reduce((sum, s) => sum + (s.git?.changedFiles?.length || 0), 0);
+  // Helper to add mesh to group
+  function gm(geo,mat,x,y,z,parent){const m=new T.Mesh(geo,mat);m.position.set(x,y,z);(parent||g).add(m);return m}
 
-    document.getElementById('summary').innerHTML = `
-      <div class="stat working"><div class="num">${working}</div><div class="label">작업 중</div></div>
-      <div class="stat"><div class="num">${waiting}</div><div class="label">대기 중</div></div>
-      <div class="stat idle"><div class="num">${idle}</div><div class="label">대기</div></div>
-      <div class="stat"><div class="num">${sessions.length}</div><div class="label">전체 세션</div></div>
-      <div class="stat"><div class="num">${totalChanges}</div><div class="label">변경 파일</div></div>
-    `;
+  // Desk
+  const deskMat=new T.MeshStandardMaterial({color:0xe2d5c3,roughness:0.5});
+  gm(new T.BoxGeometry(1.6,.06,.7),deskMat,0,.72,0);
+  const legM=new T.MeshStandardMaterial({color:0xaaa090,metalness:0.5});
+  const legG=new T.CylinderGeometry(.02,.02,.7,4);
+  [[-0.7,-.3],[.7,-.3],[-.7,.3],[.7,.3]].forEach(([a,b])=>gm(legG,legM,a,.35,b));
 
-    // Table - preserve open detail rows
-    const openDetails = new Set();
-    document.querySelectorAll('.detail-row.open').forEach(el => openDetails.add(el.id.replace('detail-', '')));
+  // Monitor
+  const mFrame=new T.Mesh(new T.BoxGeometry(.85,.55,.025),new T.MeshStandardMaterial({color:0x222222}));
+  mFrame.position.set(0,1.3,-.12*fd);mFrame.rotation.y=row===1?Math.PI:0;g.add(mFrame);
+  const scr=mkScreen(s,st);
+  const scrMesh=new T.Mesh(new T.PlaneGeometry(.78,.48),new T.MeshBasicMaterial({map:new T.CanvasTexture(scr)}));
+  scrMesh.position.set(0,1.3,row===0?-.105:.105);scrMesh.rotation.y=row===1?Math.PI:0;g.add(scrMesh);
+  g.userData.scrMesh=scrMesh;
+  // Stand
+  gm(new T.BoxGeometry(.03,.28,.03),new T.MeshStandardMaterial({color:0x666666}),0,.88,-.12*fd);
+  gm(new T.CylinderGeometry(.1,.1,.015,6),new T.MeshStandardMaterial({color:0x666666}),0,.76,-.12*fd);
+  // Screen glow
+  const glow=new T.PointLight(col,.12,2);glow.position.set(0,1.2,-.08*fd);g.add(glow);g.userData.glow=glow;
 
-    const table = document.getElementById('sessionTable');
-    if (sessions.length === 0) {
-      table.innerHTML = '<tr><td colspan="7" class="empty">활성 세션이 없습니다</td></tr>';
-    } else {
-      // Sort: working first, then waiting, then idle
-      const order = { working: 0, waiting: 1, idle: 2 };
-      sessions.sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
-      table.innerHTML = sessions.map(renderSession).join('');
-      // Restore open states
-      for (const sid of openDetails) {
-        const el = document.getElementById('detail-' + sid);
-        if (el) el.classList.add('open');
-      }
-    }
+  // Keyboard + mug
+  gm(new T.BoxGeometry(.4,.012,.12),new T.MeshStandardMaterial({color:0x2a2a2a}),0,.76,.14*fd);
+  gm(new T.CylinderGeometry(.04,.035,.07,6),new T.MeshStandardMaterial({color:0xda7756}),.55,.79,.05*fd);
 
-    // Activity timeline
-    const history = data.recentHistory || [];
-    const actList = document.getElementById('activityList');
-    if (history.length === 0) {
-      actList.innerHTML = '<div class="empty">최근 활동 없음</div>';
-    } else {
-      actList.innerHTML = history.slice().reverse().slice(0, 15).map(item => {
-        const project = item.project ? item.project.split('/').pop() : '?';
-        return `<div class="activity-item">
-          <span class="activity-time">${timeAgo(Date.now() - item.timestamp)}</span>
-          <span class="activity-project">${esc(project)}</span>
-          <span class="activity-text">${esc(item.display)}</span>
-        </div>`;
-      }).join('');
-    }
-  } catch (e) {
-    console.error('Refresh failed:', e);
+  // ── Improved Avatar ──
+  const av=new T.Group();
+  av.position.set(0,.45,.42*fd);
+  av.rotation.y=row===0?Math.PI:0;
+
+  // Torso (rounded)
+  const torsoMat=new T.MeshStandardMaterial({color:0xf8f9fa,roughness:0.35,metalness:0.1});
+  const torso=new T.Mesh(new T.CapsuleGeometry(.18,.22,8,12),torsoMat);
+  torso.position.y=.12;av.add(torso);g.userData.torso=torso;
+
+  // Head (smooth sphere)
+  const headMat=new T.MeshStandardMaterial({color:0xffffff,roughness:0.3,metalness:0.05,emissive:new T.Color(col),emissiveIntensity:0.08});
+  const head=new T.Mesh(new T.SphereGeometry(.18,16,16),headMat);
+  head.position.y=.48;av.add(head);g.userData.head=head;
+
+  // Face screen (rounded rect visor)
+  const visorGeo=new T.PlaneGeometry(.22,.08);
+  const visorC=document.createElement('canvas');visorC.width=128;visorC.height=48;
+  const vx=visorC.getContext('2d');
+  vx.fillStyle=st==='working'?'#3fb950':st==='waiting'?'#d29922':'#6e7681';
+  vx.beginPath();vx.roundRect(4,4,120,40,12);vx.fill();
+  // Eyes
+  vx.fillStyle='#fff';
+  if(st==='waiting'){
+    // Wide eyes
+    vx.beginPath();vx.arc(40,24,10,0,Math.PI*2);vx.fill();
+    vx.beginPath();vx.arc(88,24,10,0,Math.PI*2);vx.fill();
+    vx.fillStyle='#333';
+    vx.beginPath();vx.arc(42,24,5,0,Math.PI*2);vx.fill();
+    vx.beginPath();vx.arc(86,24,5,0,Math.PI*2);vx.fill();
+  } else if(st==='working'){
+    // Focused eyes (lines)
+    vx.fillRect(28,20,24,8);
+    vx.fillRect(76,20,24,8);
+  } else {
+    // Sleepy eyes (arcs)
+    vx.lineWidth=3;vx.strokeStyle='#fff';
+    vx.beginPath();vx.arc(40,26,10,Math.PI,0);vx.stroke();
+    vx.beginPath();vx.arc(88,26,10,Math.PI,0);vx.stroke();
+  }
+  const visorTex=new T.CanvasTexture(visorC);
+  const visor=new T.Mesh(visorGeo,new T.MeshBasicMaterial({map:visorTex,transparent:true}));
+  visor.position.set(0,.49,-.17);av.add(visor);g.userData.visor=visor;g.userData.visorCanvas=visorC;
+
+  // Ears (small spheres)
+  const earMat=new T.MeshStandardMaterial({color:0xeeeeee,metalness:0.2});
+  const le=new T.Mesh(new T.SphereGeometry(.04,8,8),earMat);le.position.set(-.19,.48,0);av.add(le);
+  const re=new T.Mesh(new T.SphereGeometry(.04,8,8),earMat);re.position.set(.19,.48,0);av.add(re);
+
+  // Antenna
+  const ant=new T.Mesh(new T.CylinderGeometry(.012,.012,.12,4),new T.MeshStandardMaterial({color:0xbbbbbb}));ant.position.set(0,.65,0);av.add(ant);
+  const tipMat=new T.MeshBasicMaterial({color:col});
+  const tip=new T.Mesh(new T.SphereGeometry(.035,8,8),tipMat);
+  tip.position.set(0,.72,0);av.add(tip);g.userData.tip=tip;
+
+  // Arms
+  const armMat=new T.MeshStandardMaterial({color:0xf0f1f3,roughness:0.4});
+  // Upper arms
+  const la=new T.Mesh(new T.CapsuleGeometry(.04,.18,4,8),armMat);la.position.set(-.22,.08,-.12);la.rotation.x=-.75;av.add(la);g.userData.la=la;
+  const ra=new T.Mesh(new T.CapsuleGeometry(.04,.18,4,8),armMat);ra.position.set(.22,.08,-.12);ra.rotation.x=-.75;av.add(ra);g.userData.ra=ra;
+  // Hands (small spheres)
+  const handMat=new T.MeshStandardMaterial({color:0xfce4c0,roughness:0.6});
+  const lh=new T.Mesh(new T.SphereGeometry(.035,6,6),handMat);lh.position.set(-.22,-.05,-.24);av.add(lh);g.userData.lh=lh;
+  const rh=new T.Mesh(new T.SphereGeometry(.035,6,6),handMat);rh.position.set(.22,-.05,-.24);av.add(rh);g.userData.rh=rh;
+
+  g.add(av);g.userData.av=av;
+
+  // Chair (simple)
+  const cg=new T.Group();cg.position.set(0,0,.42*fd);
+  const chairMat=new T.MeshStandardMaterial({color:0x444444,roughness:0.6});
+  const cSeat=new T.Mesh(new T.BoxGeometry(.38,.035,.38),chairMat);cSeat.position.set(0,.4,0);cg.add(cSeat);
+  const cBack=new T.Mesh(new T.BoxGeometry(.36,.32,.035),chairMat);cBack.position.set(0,.58,.19*fd);cg.add(cBack);
+  const cPole=new T.Mesh(new T.CylinderGeometry(.02,.02,.35,4),new T.MeshStandardMaterial({color:0x777777}));cPole.position.set(0,.2,0);cg.add(cPole);
+  g.add(cg);
+
+  // Name label
+  mkLabel(g,s,st);
+
+  // Alert bubble
+  if(st==='waiting'){const ab=mkAlert();ab.position.y=1.8;g.add(ab);g.userData.alert=ab}
+
+  return g;
+}
+
+function mkScreen(s,st){
+  const c=document.createElement('canvas');c.width=180;c.height=100;
+  const x=c.getContext('2d');
+  x.fillStyle=st==='working'?'#0f1a12':st==='waiting'?'#1a1508':'#111318';
+  x.fillRect(0,0,180,100);
+  x.font='9px monospace';
+  if(st==='working'){
+    x.fillStyle='#3fb950';x.fillText('> working...',5,13);
+    x.fillStyle='#8b949e';
+    if(s.lastAction)(s.lastAction.substring(0,70).match(/.{1,22}/g)||[]).slice(0,3).forEach((l,i)=>x.fillText(l,5,26+i*11));
+    x.fillStyle='#3fb950';x.fillRect(5,65,50+Math.random()*70,3);
+  }else if(st==='waiting'){
+    x.fillStyle='#d29922';x.fillText('⏳ awaiting...',5,13);
+    x.fillStyle='#8b949e';x.fillText('check terminal',5,28);
+  }else{
+    x.fillStyle='#555';x.fillText('$ _',5,13);
+  }
+  x.fillStyle=st==='working'?'#238636':st==='waiting'?'#854d0e':'#333';
+  x.fillRect(0,92,180,8);
+  x.fillStyle='#ccc';x.font='7px monospace';x.fillText(s.projectName||'',3,99);
+  return c;
+}
+
+function mkLabel(g,s,st){
+  if(g.userData.label)g.remove(g.userData.label);
+  const c=document.createElement('canvas');c.width=256;c.height=52;
+  const x=c.getContext('2d');x.clearRect(0,0,256,52);
+  x.fillStyle='rgba(255,255,255,0.88)';x.beginPath();x.roundRect(24,1,208,50,10);x.fill();
+  x.strokeStyle='#ddd';x.lineWidth=1;x.beginPath();x.roundRect(24,1,208,50,10);x.stroke();
+  x.font='bold 17px sans-serif';x.textAlign='center';x.fillStyle='#1a1a2e';
+  x.fillText(s.projectName||'?',128,23);
+  x.font='11px sans-serif';
+  x.fillStyle={working:'#16a34a',waiting:'#ca8a04',idle:'#9ca3af'}[st]||'#9ca3af';
+  x.fillText({working:'작업 중 ⚡',waiting:'허용 대기 ⏳',idle:'대기'}[st]||st,128,42);
+  const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(c),transparent:true}));
+  sp.position.y=1.85;sp.scale.set(1.6,.33,1);g.add(sp);g.userData.label=sp;
+}
+
+function mkAlert(){
+  const g=new T.Group();
+  const c=document.createElement('canvas');c.width=64;c.height=64;
+  const x=c.getContext('2d');
+  x.fillStyle='#f59e0b';x.beginPath();x.arc(32,32,26,0,Math.PI*2);x.fill();
+  x.font='bold 34px sans-serif';x.textAlign='center';x.fillStyle='#fff';x.fillText('!',32,43);
+  const sp=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(c),transparent:true}));
+  sp.scale.set(.4,.4,1);g.add(sp);return g;
+}
+
+// ─── Update ───
+function updateAvatars(sessions){
+  const ids=new Set(sessions.map(s=>s.sessionId));
+  let changed=false;
+  for(const[id]of avatarMap){if(!ids.has(id)){avatarGroup.remove(avatarMap.get(id));avatarMap.delete(id);changed=true}}
+  if(sessions.length!==avatarMap.size)changed=true;
+  if(changed){
+    for(const[,a]of avatarMap)avatarGroup.remove(a);avatarMap.clear();
+    sessions.forEach((s,i)=>{const w=createWS(s,i,sessions.length);avatarGroup.add(w);avatarMap.set(s.sessionId,w)});
+  }else{
+    sessions.forEach(s=>{
+      const w=avatarMap.get(s.sessionId);if(!w)return;
+      const st=s.status||'idle';w.userData.session=s;
+      if(w.userData.glow)w.userData.glow.color.setHex(C[st]||C.idle);
+      if(w.userData.tip)w.userData.tip.material.color.setHex(C[st]||C.idle);
+      if(w.userData.head)w.userData.head.material.emissive.setHex(C[st]||C.idle);
+      if(w.userData.scrMesh){w.userData.scrMesh.material.map=new T.CanvasTexture(mkScreen(s,st));w.userData.scrMesh.material.needsUpdate=true}
+      mkLabel(w,s,st);
+      if(st==='waiting'&&!w.userData.alert){const a=mkAlert();a.position.y=1.8;w.add(a);w.userData.alert=a}
+      if(st!=='waiting'&&w.userData.alert){w.remove(w.userData.alert);w.userData.alert=null}
+    });
   }
 }
 
-refresh();
-setInterval(refresh, 5000);
+// ─── Animate ───
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clk.getElapsedTime();ctrl.update();
+  for(const[,w]of avatarMap){
+    const st=w.userData.session?.status||'idle';
+    if(st==='working'){
+      if(w.userData.la)w.userData.la.rotation.x=-.75+Math.sin(t*9)*.06;
+      if(w.userData.ra)w.userData.ra.rotation.x=-.75+Math.sin(t*9+1.2)*.06;
+      if(w.userData.lh){w.userData.lh.position.y=-.05+Math.sin(t*9)*.015;w.userData.lh.position.z=-.24+Math.sin(t*9)*.01}
+      if(w.userData.rh){w.userData.rh.position.y=-.05+Math.sin(t*9+1.2)*.015;w.userData.rh.position.z=-.24+Math.sin(t*9+1.2)*.01}
+      if(w.userData.head)w.userData.head.position.y=.48+Math.sin(t*2)*.008;
+    }else if(st==='waiting'){
+      if(w.userData.head)w.userData.head.rotation.y=Math.sin(t*1.2)*.25;
+    }
+    if(w.userData.alert){w.userData.alert.position.y=1.8+Math.sin(t*3)*.1;w.userData.alert.scale.setScalar(.9+Math.sin(t*2.5)*.1)}
+    if(w.userData.tip){const p=(Math.sin(t*4)+1)/2;w.userData.tip.material.opacity=.5+p*.5}
+  }
+  ren.render(scene,cam);
+}
+
+// ─── 3D Click ───
+function on3DClick(e){
+  const cv=document.getElementById('c');
+  const rect=cv.getBoundingClientRect();
+  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+  ray.setFromCamera(mouse,cam);
+  const ms=[];
+  for(const[,w]of avatarMap)w.traverse(c=>{if(c.isMesh){c.userData._w=w;ms.push(c)}});
+  const h=ray.intersectObjects(ms,false);
+  if(h.length&&h[0].object.userData._w){
+    const sid=h[0].object.userData._w.userData.sid;
+    // Toggle detail row in table
+    const dr=document.getElementById('detail-'+sid);
+    if(dr)dr.classList.toggle('open');
+  }
+}
+
+// ─── Notifications ───
+function checkNotif(sessions){
+  const w=sessions.filter(s=>s.status==='waiting');
+  for(const s of w){if(!notified.has(s.sessionId)){notified.add(s.sessionId);addNotif(s)}}
+  for(const id of notified){if(!w.find(s=>s.sessionId===id))notified.delete(id)}
+}
+function addNotif(s){
+  const ct=document.getElementById('notifications'),d=document.createElement('div');d.className='notification';
+  d.innerHTML=`<div class="notif-header"><div class="notif-avatar">🤖</div><span class="notif-name">${esc(s.projectName)}</span><span class="notif-badge">허용 필요</span></div>
+    <div class="notif-body"><b>${esc(s.projectName)}</b> 아바타가 허용을 요청합니다.${s.lastAction?`<div class="msg">${esc(s.lastAction.substring(0,60))}</div>`:''}</div>
+    <div class="notif-time">${new Date().toLocaleTimeString('ko-KR')}</div>`;
+  d.addEventListener('click',()=>{d.classList.add('dismissing');setTimeout(()=>d.remove(),300);
+    const w=avatarMap.get(s.sessionId);if(w){ctrl.target.copy(w.position);ctrl.target.y=1}});
+  ct.prepend(d);
+  setTimeout(()=>{if(d.parentNode){d.classList.add('dismissing');setTimeout(()=>d.remove(),300)}},30000);
+  if(Notification.permission==='granted')new Notification(`🤖 ${s.projectName} - 허용 필요`,{body:'터미널에서 확인해 주세요'});
+}
+if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+
+// ─── 2D Dashboard Table ───
+function esc(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):''}
+function fmtT(n){if(!n)return'0';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(n)}
+function fmtU(ms){const h=Math.floor(ms/36e5),m=Math.floor((ms%36e5)/6e4);return h>0?`${h}h ${m}m`:`${m}m`}
+function timeAgo(ms){if(ms<10000)return'방금';if(ms<60000)return`${Math.floor(ms/1000)}초 전`;if(ms<3600000)return`${Math.floor(ms/60000)}분 전`;if(ms<86400000)return`${Math.floor(ms/3600000)}시간 전`;return`${Math.floor(ms/86400000)}일 전`}
+function statusLabel(s){return{working:'작업 중',waiting:'대기 중',idle:'대기'}[s]||s||'idle'}
+
+function renderSession(s){
+  const st=s.status||'idle';const g=s.git;
+  let main=`<tr onclick="document.getElementById('detail-${s.sessionId}')?.classList.toggle('open')" style="cursor:pointer">
+    <td><span class="status-badge ${st}"><span class="pulse"></span>${statusLabel(st)}</span>
+    ${s.cpu>1?`<div style="font-size:9px;color:#6e7681;margin-top:2px">CPU ${s.cpu.toFixed(1)}%</div>`:''}
+    ${s.childProcesses?.length?`<div style="font-size:9px;color:#da7756;margin-top:1px">${s.childProcesses.map(esc).join(', ')}</div>`:''}</td>
+    <td><div class="project-name">${esc(s.projectName)}</div><div class="project-path">${esc(s.cwd)}</div></td>
+    <td>${g?`<span class="branch">${esc(g.branch)}</span>`:'-'}</td>
+    <td><div class="last-action">${esc(s.lastAction||'-')}</div>
+    ${s.lastUserMessage?`<div class="last-user-msg">"${esc(s.lastUserMessage)}"</div>`:''}
+    ${s.toolSummary?.length?`<div class="tools-used">${s.toolSummary.map(t=>`<span class="tool-tag">${esc(t)}</span>`).join('')}</div>`:''}</td>
+    <td>${s.tokenUsage?`<span class="token-total">${fmtT((s.tokenUsage.input||0)+(s.tokenUsage.output||0)+(s.tokenUsage.cacheCreation||0)+(s.tokenUsage.cacheRead||0))}</span>`:'<span style="color:#6e7681">-</span>'}</td>
+    <td>${g?.changedFiles?.length?`<span class="changed-count">${g.changedFiles.length}개</span>`:'<span style="color:#6e7681">-</span>'}</td>
+    <td><span class="time-ago">${timeAgo(s.lastActivityAgo||s.uptime)}</span></td>
+    <td><span class="uptime">${fmtU(s.uptime)}</span></td></tr>`;
+
+  let detail='<div class="detail-content">';
+  if(g){
+    detail+=`<div class="detail-section"><div class="detail-section-title">Git</div>
+      <div class="commit-info"><span class="commit-hash">${esc(g.lastCommit?.hash)}</span> ${esc(g.lastCommit?.subject)} <span style="color:#6e7681">(${esc(g.lastCommit?.relTime)})</span></div>
+      ${g.totalCommitsToday?`<div style="font-size:10px;color:#8b949e;margin-top:2px">오늘 커밋: ${g.totalCommitsToday}개</div>`:''}</div>`;
+    if(g.changedFiles?.length){
+      detail+=`<div class="detail-section"><div class="detail-section-title">변경 파일 (${g.changedFiles.length})</div><div class="file-list">`;
+      for(const f of g.changedFiles.slice(0,8)){const sc=f.status[0]==='?'?'Q':f.status[0];detail+=`<div><span class="file-status ${sc}">${esc(f.status)}</span> ${esc(f.file)}</div>`}
+      if(g.changedFiles.length>8)detail+=`<div style="color:#6e7681">+${g.changedFiles.length-8}개 더</div>`;
+      detail+=`</div></div>`;
+    }
+  }
+  if(s.recentActions?.length){
+    detail+=`<div class="detail-section"><div class="detail-section-title">최근 작업</div>`;
+    for(const a of s.recentActions.slice().reverse()){
+      detail+=a.type==='tool'?`<div class="action-item"><span class="action-type tool">${esc(a.name)}</span><span>${esc(a.detail)}</span></div>`
+        :`<div class="action-item"><span class="action-type msg">응답</span><span>${esc(a.text)}</span></div>`}
+    detail+=`</div>`;
+  }
+  if(s.tokenUsage){const t=s.tokenUsage;detail+=`<div class="detail-section"><div class="detail-section-title">토큰</div><div class="token-bar">
+    <span class="token-item input">Input: <span>${fmtT(t.input)}</span></span>
+    <span class="token-item output">Output: <span>${fmtT(t.output)}</span></span>
+    <span class="token-item cache">Cache W: <span>${fmtT(t.cacheCreation)}</span></span>
+    <span class="token-item cache">Cache R: <span>${fmtT(t.cacheRead)}</span></span></div></div>`}
+  detail+=`<div class="detail-section"><div class="detail-section-title">통계</div>
+    <div style="font-size:10px;color:#8b949e">메시지: ${s.messageCount?.user||0}/${s.messageCount?.assistant||0} · PID: ${s.pid}</div></div></div>`;
+
+  return main+`<tr class="detail-row" id="detail-${s.sessionId}"><td colspan="8">${detail}</td></tr>`;
+}
+
+// ─── Data Fetch ───
+async function refresh(){
+  try{
+    const r=await fetch('/api/dashboard');
+    if(r.status===401){location.href='/login';return}
+    const d=await r.json();
+    const age=Date.now()-d.timestamp;
+    const dot=document.getElementById('syncDot'),ss=document.getElementById('syncStatus');
+    if(age<15000){dot.className='sync-dot';ss.textContent='실시간'}
+    else if(age<60000){dot.className='sync-dot stale';ss.textContent=`${Math.floor(age/1000)}초 전`}
+    else{dot.className='sync-dot offline';ss.textContent='오프라인'}
+
+    const sessions=d.activeSessions||[];
+    const wk=sessions.filter(s=>s.status==='working').length;
+    const wt=sessions.filter(s=>s.status==='waiting').length;
+    const tt=sessions.reduce((sum,s)=>{const t=s.tokenUsage;return sum+(t?(t.input||0)+(t.output||0)+(t.cacheCreation||0)+(t.cacheRead||0):0)},0);
+
+    document.getElementById('hudStats').innerHTML=`
+      <div class="hud-stat working"><div class="val">${wk}</div><div class="lbl">작업 중</div></div>
+      <div class="hud-stat waiting"><div class="val">${wt}</div><div class="lbl">대기 중</div></div>
+      <div class="hud-stat"><div class="val">${sessions.length}</div><div class="lbl">세션</div></div>
+      <div class="hud-stat"><div class="val">${fmtT(tt)}</div><div class="lbl">토큰</div></div>`;
+
+    // 3D
+    updateAvatars(sessions);
+    checkNotif(sessions);
+
+    // 2D table
+    const open=new Set();
+    document.querySelectorAll('.detail-row.open').forEach(el=>open.add(el.id.replace('detail-','')));
+    const tb=document.getElementById('sessionTable');
+    const order={working:0,waiting:1,idle:2};
+    sessions.sort((a,b)=>(order[a.status]??2)-(order[b.status]??2));
+    tb.innerHTML=sessions.length?sessions.map(renderSession).join(''):'<tr><td colspan="8" class="empty">활성 세션 없음</td></tr>';
+    for(const sid of open){const el=document.getElementById('detail-'+sid);if(el)el.classList.add('open')}
+  }catch(e){console.error(e)}
+}
+
+init();animate();refresh();setInterval(refresh,5000);
 </script>
 </body>
 </html>
