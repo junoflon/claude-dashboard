@@ -139,8 +139,57 @@ function getSessionStatus(sessionId) {
       // For now just collect data
       const toolSummary = [...new Set(toolsUsed.slice(-20))];
 
+      // "허용 대기" (Do you want to proceed?) 감지:
+      // 조건 1: tool_use 뒤에 result 없음
+      // 조건 2: 파일이 30초 이상 안 바뀜 (진짜 멈춤)
+      // → 대화 중/작업 중이면 파일이 계속 바뀌므로 절대 걸리지 않음
+      let jsonlWaiting = false;
+      let pendingTool = null;
+      const staleSeconds = (Date.now() - lastActivity) / 1000;
+      if (staleSeconds > 30) {
+        const lastLines = lines.slice(-8);
+        // 뒤에서부터 마지막 assistant 찾기
+        for (let li = lastLines.length - 1; li >= 0; li--) {
+          try {
+            const d = JSON.parse(lastLines[li]);
+            // tool_result가 있으면 = 이미 승인됨
+            if (d.type === 'tool_result') break;
+            if (d.type === 'assistant') {
+              let msg = d.message;
+              if (typeof msg === 'string') msg = JSON.parse(msg);
+              const c = msg.content;
+              if (Array.isArray(c)) {
+                const toolBlock = c.find(b => b?.type === 'tool_use');
+                if (toolBlock) {
+                  // 이 assistant 뒤에 tool_result 있는지 확인
+                  const after = lastLines.slice(li + 1);
+                  const hasResult = after.some(l => {
+                    try { return JSON.parse(l).type === 'tool_result'; } catch { return false; }
+                  });
+                  if (!hasResult) {
+                    jsonlWaiting = true;
+                    const inp = toolBlock.input || {};
+                    let detail = '';
+                    if (toolBlock.name === 'Bash') {
+                      detail = (inp.description ? inp.description + '\n' : '') + (inp.command || '').substring(0, 150);
+                    } else if (toolBlock.name === 'Write' && inp.file_path) detail = `파일 생성: ${inp.file_path}`;
+                    else if (toolBlock.name === 'Edit' && inp.file_path) detail = `파일 수정: ${inp.file_path}`;
+                    else if (toolBlock.name === 'Read' && inp.file_path) detail = `파일 읽기: ${inp.file_path}`;
+                    else detail = JSON.stringify(inp).substring(0, 100);
+                    pendingTool = { name: toolBlock.name, detail };
+                  }
+                }
+              }
+              break;
+            }
+          } catch {}
+        }
+      }
+
       return {
-        status: 'idle', // overridden by getProcessStatus
+        status: 'idle',
+        jsonlWaiting,
+        pendingTool,
         lastAction,
         lastUserMessage,
         lastActivityAgo: lastModifiedAgo,
@@ -177,8 +226,12 @@ function getProcessStatus(pid) {
 
     if (cpu > 5 || meaningfulChildren.length > 0) {
       return { status: 'working', cpu, children, childCmds: meaningfulChildren };
-    } else if (cpu > 0.5) {
+    } else if (cpu > 0.5 && children === 0) {
+      // CPU 사용하지만 자식 프로세스 없음 = 사용자 입력 대기 (허용 프롬프트)
       return { status: 'waiting', cpu, children, childCmds: [] };
+    } else if (cpu > 0.1) {
+      // 미세한 CPU = idle 아닌 대기 상태이지만 알림 불필요
+      return { status: 'idle', cpu, children: 0, childCmds: [] };
     }
     return { status: 'idle', cpu, children: 0, childCmds: [] };
   } catch {
@@ -202,14 +255,19 @@ async function sync() {
       const sessionStatus = getSessionStatus(s.sessionId) || {};
       const procStatus = getProcessStatus(s.pid);
 
+      // waiting 판단: JSONL 대기 + 프로세스 idle (CPU < 2) + 자식 프로세스 없음
+      let finalStatus = procStatus.status;
+      if (sessionStatus.jsonlWaiting && procStatus.cpu < 2 && procStatus.children === 0) {
+        finalStatus = 'waiting';
+      }
+
       return {
         ...s,
         projectName: path.basename(s.cwd),
         git: getGitInfo(s.cwd),
         uptime: Date.now() - s.startedAt,
         ...sessionStatus,
-        // Process-based status overrides JSONL-based
-        status: procStatus.status,
+        status: finalStatus,
         cpu: procStatus.cpu,
         childProcesses: procStatus.childCmds,
       };

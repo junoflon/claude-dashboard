@@ -270,7 +270,15 @@ ${generatedPrompt}
   } catch (e) { console.error(e); try { res.writeHead(500); res.end(e.message); } catch {} }
 });
 
-server.listen(PORT, () => { console.log(`Claude Dashboard on port ${PORT}`); });
+server.listen(PORT, () => {
+  console.log(`Claude Dashboard on port ${PORT}`);
+  // sync.js 자동 시작
+  const syncProc = require('child_process').spawn('node', [path.join(__dirname, 'sync.js')], {
+    stdio: 'ignore', detached: false
+  });
+  syncProc.on('error', e => console.error('[Sync] 시작 실패:', e.message));
+  console.log(`[Sync] 자동 시작 (PID: ${syncProc.pid})`);
+});
 
 // ─── Discord Bot ───
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN || '';

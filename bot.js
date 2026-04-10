@@ -53,6 +53,15 @@ class AgentBot {
       if (msg.author.bot) return;
       console.log(`[Bot] 메시지: #${msg.channel.name} "${msg.content.substring(0, 50)}"`);
 
+      // 승인 메시지 감지 (어떤 채널에서든)
+      if (this.isApproval(msg.content)) {
+        const waiting = (this.dashboardData.activeSessions || []).filter(s => s.status === 'waiting');
+        if (waiting.length) {
+          await this.approveWaiting(msg);
+          return;
+        }
+      }
+
       const expert = channelToExpert.get(msg.channel.id);
       if (expert) {
         await this.handleExpertMessage(msg, expert);
@@ -65,15 +74,14 @@ class AgentBot {
         return;
       }
 
-      // 매핑 안 된 채널 → 메시지 내용으로 전문가 자동 감지
-      console.log(`[Bot] 자동 감지 모드: #${msg.channel.name}`);
+      // 매핑 안 된 채널 → @멘션 또는 "실장" 호출 시에만 반응
+      const botMentioned = msg.mentions.has(this.client.user);
+      const called = /실장|비서|봇아|bot/i.test(msg.content);
+      if (!botMentioned && !called) return; // 무시
+
+      console.log(`[Bot] 호출됨: #${msg.channel.name} by ${botMentioned ? '@멘션' : '키워드'}`);
       const detected = this.detectExpert(msg.content);
-      if (detected) {
-        await this.handleExpertMessage(msg, detected);
-      } else {
-        // 기본 전문가 (architect)로 응답
-        await this.handleExpertMessage(msg, 'architect');
-      }
+      await this.handleExpertMessage(msg, detected || 'architect');
     });
   }
 
@@ -144,8 +152,15 @@ class AgentBot {
     } catch { return null; }
   }
 
-  // ─── 전문가 시스템 프롬프트 로드 ───
+  // ─── 전문가 시스템 프롬프트 (경량) ───
   loadSystemPrompt(expertKey) {
+    const expert = EXPERTS[expertKey];
+    // 디스코드용은 짧은 프롬프트만. 풀 프롬프트는 코드 작업 시에만.
+    return `당신은 ${expert.name}(${expert.description})입니다. 한국어로 간결하게 답변하세요.`;
+  }
+
+  // 코드 작업용 풀 프롬프트
+  loadFullPrompt(expertKey) {
     const expert = EXPERTS[expertKey];
     try {
       const content = fs.readFileSync(path.join(CLAUDE_AGENTS_DIR, expert.systemFile), 'utf8');
@@ -193,6 +208,7 @@ class AgentBot {
     }
 
     const modeLabel = { question: '💬 질문 모드', local: '💻 로컬 작업', remote: '☁️ 클라우드 작업' }[mode];
+    console.log(`[Bot] 모드=${mode} 프로젝트=${project?.name||'없음'} alive=${isAlive} 세션수=${(this.dashboardData.activeSessions||[]).length}`);
 
     const thinking = await msg.reply({
       embeds: [new EmbedBuilder()
@@ -201,8 +217,8 @@ class AgentBot {
       ]
     });
 
-    // 대화 히스토리 수집
-    const history = await this.getChannelHistory(msg.channel);
+    // 대화 히스토리 수집 (최근 6개만 — 속도)
+    const history = await this.getChannelHistory(msg.channel, 6);
 
     try {
       let result;
@@ -239,14 +255,15 @@ class AgentBot {
 
   // ─── A 모드: 로컬 실행 (Mac 켜져 있을 때) ───
   async runLocal(userMessage, expertKey, project, history) {
-    const systemPrompt = this.loadSystemPrompt(expertKey);
-    const projectsCtx = this.getProjectsContext();
-    const prompt = `${systemPrompt}\n\n---\n${projectsCtx}\n[현재 작업 프로젝트] ${project.name} (${project.path})\n\n${history ? `[이전 대화]\n${history}\n\n` : ''}[현재 메시지]\n${userMessage}`;
+    // 코드 작업은 풀 프롬프트 사용
+    const systemPrompt = this.loadFullPrompt(expertKey);
+    const prompt = `${systemPrompt}\n\n프로젝트: ${project.name}\n\n${history ? `[대화]\n${history}\n\n` : ''}${userMessage}`;
 
     return new Promise((resolve, reject) => {
       // --continue: 마지막 대화 이어하기 (기존 맥락 유지)
       // --resume SESSION_ID: 특정 세션 복귀
-      const args = ['-p', prompt, '--dangerously-skip-permissions'];
+      // 코드 작업은 Sonnet (정확도), 일반은 Haiku (속도)
+      const args = ['-p', prompt, '--dangerously-skip-permissions', '--model', 'sonnet'];
 
       const proc = spawn('claude', args, {
         cwd: project.path,
@@ -306,9 +323,14 @@ class AgentBot {
     }
   }
 
-  // ─── 전체 프로젝트 현황 요약 ───
+  // ─── 전체 프로젝트 현황 요약 (특정 폴더만) ───
   getProjectsContext() {
-    const sessions = this.dashboardData.activeSessions || [];
+    const PROJECT_DIRS = [
+      '/Users/mac/Desktop/#5 사이드 프로젝트',
+      '/Users/mac/Desktop/claude-dashboard',
+    ];
+    const sessions = (this.dashboardData.activeSessions || [])
+      .filter(s => PROJECT_DIRS.some(d => s.cwd.startsWith(d)));
     if (!sessions.length) return '';
     const lines = sessions.map(s => {
       const st = {working:'작업중',waiting:'대기중',idle:'유휴'}[s.status]||s.status;
@@ -324,11 +346,13 @@ class AgentBot {
   // ─── 단순 질문 (프로젝트 무관) ───
   async runQuestion(userMessage, expertKey, history) {
     const systemPrompt = this.loadSystemPrompt(expertKey);
-    const projectsCtx = this.getProjectsContext();
-    const prompt = `${systemPrompt}\n\n---\n${projectsCtx}\n${history ? `[이전 대화]\n${history}\n\n` : ''}[현재 메시지]\n${userMessage}`;
+    // 프로젝트 물어볼 때만 컨텍스트 포함
+    const needsProjects = /프로젝트|세션|상태|목록|뭐 하고|돌아가/i.test(userMessage);
+    const ctx = needsProjects ? this.getProjectsContext() : '';
+    const prompt = `${systemPrompt}\n\n${ctx}${history ? `[대화]\n${history}\n\n` : ''}${userMessage}`;
 
     return new Promise((resolve, reject) => {
-      const proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions'], {
+      const proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--model', 'haiku'], {
         timeout: 120000,
         env: { ...process.env },
       });
@@ -354,6 +378,66 @@ class AgentBot {
       case 'projects': await this.cmdProjects(msg); break;
       case 'help': await this.cmdHelp(msg); break;
     }
+  }
+
+  // ─── 승인 감지: "승인", "ㅇㅇ", "진행해", "y" 등 ───
+  isApproval(text) {
+    return /^(승인|ㅇㅇ|진행|허용|ㅇ|y|yes|ok|고|해줘|해)$/i.test(text.trim());
+  }
+
+  // ─── 대기 중인 세션에 승인 보내기 ───
+  async approveWaiting(msg) {
+    const sessions = this.dashboardData.activeSessions || [];
+    const waiting = sessions.filter(s => s.status === 'waiting');
+
+    if (!waiting.length) {
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(0x6e7681).setDescription('대기 중인 세션이 없습니다.')] });
+      return true;
+    }
+
+    let approved = 0;
+    let methods = [];
+    for (const s of waiting) {
+      try {
+        const tty = execSync(`ps -p ${s.pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
+        if (tty && tty !== '??' && tty !== '') {
+          // 방법 1: python으로 TTY에 직접 쓰기 (가장 확실)
+          try {
+            execSync(`python3 -c "import os; fd=os.open('/dev/${tty}',os.O_WRONLY); os.write(fd,b'1\\n'); os.close(fd)"`, { timeout: 3000 });
+            approved++;
+            methods.push(`${s.projectName}: /dev/${tty}`);
+            continue;
+          } catch {}
+
+          // 방법 2: printf로 직접 쓰기
+          try {
+            execSync(`printf '1\\n' > /dev/${tty}`, { timeout: 3000 });
+            approved++;
+            methods.push(`${s.projectName}: printf`);
+            continue;
+          } catch {}
+        }
+      } catch (e) {
+        console.log(`[Bot] TTY 찾기 실패 (${s.projectName}): ${e.message}`);
+      }
+    }
+
+    if (approved > 0) {
+      await msg.reply({
+        embeds: [new EmbedBuilder()
+          .setColor(0x22c55e)
+          .setDescription(`✅ ${approved}개 세션 승인 완료!\n${methods.map(m => `• ${m}`).join('\n')}`)
+        ]
+      });
+    } else {
+      await msg.reply({
+        embeds: [new EmbedBuilder()
+          .setColor(0xf59e0b)
+          .setDescription(`⚠️ 자동 승인 실패.\n터미널에서 직접 Y를 눌러주세요.\n대기 중: ${waiting.map(s => `${s.projectName} (PID:${s.pid})`).join(', ')}`)
+        ]
+      });
+    }
+    return true;
   }
 
   async cmdStatus(msg) {
@@ -442,11 +526,15 @@ class AgentBot {
     try {
       const channel = this.client.channels.cache.get(channelId);
       if (!channel) return;
+      const tool = session.pendingTool;
+      const toolInfo = tool
+        ? `\n\n**실행 요청:** \`${tool.name}\`\n\`\`\`${tool.detail}\`\`\``
+        : '';
       await channel.send({
         embeds: [new EmbedBuilder()
           .setColor(0xf59e0b)
-          .setTitle('⏳ 허용 필요')
-          .setDescription(`**${session.projectName}** 세션이 허용을 기다리고 있습니다.\n터미널에서 확인해 주세요.`)
+          .setTitle(`⏳ ${session.projectName} — 허용 필요`)
+          .setDescription(`터미널에서 Y/N 승인이 필요합니다.${toolInfo}\n\n**"승인"** 이라고 입력하면 자동 승인합니다.`)
           .setTimestamp()
         ]
       });
