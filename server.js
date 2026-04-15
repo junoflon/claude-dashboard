@@ -50,17 +50,32 @@ function parseBody(req) {
   });
 }
 
+const CACHE_FILE = path.join(__dirname, '.last-sync.json');
+
+// 시작 시 마지막 캐시 로드
+try {
+  const cached = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
+  if (cached.activeSessions?.length) {
+    dashboardData = { ...cached, timestamp: 0 }; // timestamp 0 = stale 표시
+    console.log(`[Cache] 마지막 sync 복원: ${cached.activeSessions.length}개 프로젝트`);
+  }
+} catch {}
+
 async function handleSync(req, res) {
   const data = await parseBody(req);
   if (data.secret !== SYNC_SECRET) { res.writeHead(403); res.end('Forbidden'); return; }
   dashboardData = { activeSessions: data.sessions || [], recentHistory: data.history || [], timestamp: Date.now() };
+  // 파일로 캐시 저장 (Mac 꺼져도 프로젝트 목록 유지)
+  try { fs.writeFileSync(CACHE_FILE, JSON.stringify(dashboardData), 'utf8'); } catch {}
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ ok: true, sessions: dashboardData.activeSessions.length }));
 }
 
 // ── Server ──
 const server = http.createServer(async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowed = !origin || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('railway.app');
+  res.setHeader('Access-Control-Allow-Origin', allowed ? origin || '*' : '');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
@@ -70,13 +85,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(getLoginPage(false)); return;
     }
     if (req.url === '/login' && req.method === 'POST') {
-      const body = await new Promise(r => { let b=''; req.on('data',c=>b+=c); req.on('end',()=>r(b)); });
+      const body = await new Promise(r => { let b='',len=0; req.on('data',c=>{ len+=c.length; if(len>1e4){r('');return;} b+=c; }); req.on('end',()=>r(b)); });
       const pw = new URLSearchParams(body).get('password');
       if (pw === DASH_PASSWORD) {
         const token = generateToken();
         res.writeHead(302, { 'Set-Cookie': `dash_token=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`, 'Location': '/' });
-      } else { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(getLoginPage(true)); }
-      res.end(); return;
+        res.end();
+      } else {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getLoginPage(true));
+      }
+      return;
     }
     if (req.url === '/logout') { res.writeHead(302, { 'Set-Cookie': 'dash_token=; Path=/; HttpOnly; Max-Age=0', 'Location': '/login' }); res.end(); return; }
     if (req.url === '/api/sync' && req.method === 'POST') { await handleSync(req, res); return; }
@@ -125,7 +144,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.url === '/api/agents' && req.method === 'POST') {
       const data = await parseBody(req);
+      if (!data.id || !data.name || !data.role) { res.writeHead(400); res.end('Missing fields'); return; }
       const agentsDir = path.join(require('os').homedir(), '.claude', 'agents');
+      if (!fs.existsSync(agentsDir)) fs.mkdirSync(agentsDir, { recursive: true });
       const fileName = data.id.replace(/[^a-z0-9-]/g, '') + '.md';
       const filePath = path.join(agentsDir, fileName);
 
@@ -173,10 +194,15 @@ const server = http.createServer(async (req, res) => {
           `{5-7개 행동 규칙, "절대 하지 마" 포함}`,
         ].join('\n');
 
-        generatedPrompt = execSync(
-          `claude -p ${JSON.stringify(genReq)} --no-input 2>/dev/null`,
-          { encoding: 'utf8', timeout: 60000 }
-        ).trim();
+        // spawn으로 안전하게 실행 (커맨드 인젝션 방지)
+        generatedPrompt = await new Promise((resolve, reject) => {
+          const proc = require('child_process').spawn('claude', ['-p', genReq], { timeout: 60000 });
+          let out = '', err = '';
+          proc.stdout.on('data', d => { if (out.length < 50000) out += d; });
+          proc.stderr.on('data', d => err += d);
+          proc.on('close', code => code === 0 && out.trim() ? resolve(out.trim()) : reject(new Error(err || 'fail')));
+          proc.on('error', reject);
+        });
       } catch (e) {
         // Fallback: 기본 템플릿 사용
         generatedPrompt = [
@@ -261,11 +287,15 @@ ${generatedPrompt}
     if (req.url === '/api/dashboard') {
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(dashboardData));
     } else if (req.url === '/' || req.url === '/index.html') {
+      const file = path.join(__dirname, 'index.html');
+      if (!fs.existsSync(file)) { res.writeHead(404); res.end('Not Found'); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8'));
+      res.end(fs.readFileSync(file, 'utf8'));
     } else if (req.url === '/office') {
+      const file = path.join(__dirname, 'office.html');
+      if (!fs.existsSync(file)) { res.writeHead(404); res.end('Not Found'); return; }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(fs.readFileSync(path.join(__dirname, 'office.html'), 'utf8'));
+      res.end(fs.readFileSync(file, 'utf8'));
     } else { res.writeHead(404); res.end('Not Found'); }
   } catch (e) { console.error(e); try { res.writeHead(500); res.end(e.message); } catch {} }
 });

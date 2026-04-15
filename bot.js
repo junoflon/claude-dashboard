@@ -8,9 +8,10 @@
 
 const { Client, GatewayIntentBits, EmbedBuilder, Events } = require('discord.js');
 const { spawn, execSync } = require('child_process');
+const Anthropic = require('@anthropic-ai/sdk');
+const { Octokit } = require('octokit');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
 
 const CLAUDE_AGENTS_DIR = path.join(require('os').homedir(), '.claude', 'agents');
 
@@ -53,18 +54,22 @@ class AgentBot {
       if (msg.author.bot) return;
       console.log(`[Bot] 메시지: #${msg.channel.name} "${msg.content.substring(0, 50)}"`);
 
-      // 승인 메시지 감지 (어떤 채널에서든)
+      // 승인 메시지 → Claude 호출 없이 바로 터미널에 전송
       if (this.isApproval(msg.content)) {
-        const waiting = (this.dashboardData.activeSessions || []).filter(s => s.status === 'waiting');
-        if (waiting.length) {
-          await this.approveWaiting(msg);
-          return;
-        }
+        await this.approveWaiting(msg);
+        return; // 절대 전문가에게 넘기지 않음
       }
 
       const expert = channelToExpert.get(msg.channel.id);
       if (expert) {
-        await this.handleExpertMessage(msg, expert);
+        // "팀", "같이", "협업", "다같이" → 멀티에이전트 모드
+        const teamMode = /팀|같이|협업|다같이|전문가들|다 모여|회의/.test(msg.content);
+        if (teamMode) {
+          const history = await this.getChannelHistory(msg.channel, 6);
+          await this.runTeamWork(msg, expert, msg.content, history);
+        } else {
+          await this.handleExpertMessage(msg, expert);
+        }
         return;
       }
 
@@ -74,14 +79,8 @@ class AgentBot {
         return;
       }
 
-      // 매핑 안 된 채널 → @멘션 또는 "실장" 호출 시에만 반응
-      const botMentioned = msg.mentions.has(this.client.user);
-      const called = /실장|비서|봇아|bot/i.test(msg.content);
-      if (!botMentioned && !called) return; // 무시
-
-      console.log(`[Bot] 호출됨: #${msg.channel.name} by ${botMentioned ? '@멘션' : '키워드'}`);
-      const detected = this.detectExpert(msg.content);
-      await this.handleExpertMessage(msg, detected || 'architect');
+      // 매핑 안 된 채널 → 무시 (전담 채널에서만 응답)
+      return;
     });
   }
 
@@ -163,10 +162,16 @@ class AgentBot {
   loadFullPrompt(expertKey) {
     const expert = EXPERTS[expertKey];
     try {
-      const content = fs.readFileSync(path.join(CLAUDE_AGENTS_DIR, expert.systemFile), 'utf8');
+      const filePath = path.join(CLAUDE_AGENTS_DIR, expert.systemFile);
+      if (!fs.existsSync(filePath)) {
+        console.log(`[Bot] 에이전트 파일 없음: ${filePath} → 기본 프롬프트 사용`);
+        return `You are ${expert.name}, ${expert.description}. Answer in Korean.`;
+      }
+      const content = fs.readFileSync(filePath, 'utf8');
       const parts = content.split('---');
       return parts.length >= 3 ? parts.slice(2).join('---').trim() : content;
-    } catch {
+    } catch (e) {
+      console.log(`[Bot] 프롬프트 로드 실패 (${expertKey}): ${e.message}`);
       return `You are ${expert.name}, ${expert.description}. Answer in Korean.`;
     }
   }
@@ -273,53 +278,159 @@ class AgentBot {
 
       let output = '';
       let error = '';
-      proc.stdout.on('data', d => output += d);
-      proc.stderr.on('data', d => error += d);
+      const MAX_OUTPUT = 100000; // 100KB 제한
+      proc.stdout.on('data', d => { if (output.length < MAX_OUTPUT) output += d; });
+      proc.stderr.on('data', d => { if (error.length < 10000) error += d; });
       proc.on('close', code => {
-        if (code === 0 && output.trim()) resolve(output.trim());
+        if (code === 0 && output.trim()) {
+          // 작업 완료 후 자동 commit + push (변경 파일만)
+          try {
+            const status = execSync('git status --porcelain', { cwd: project.path, encoding: 'utf8' }).trim();
+            if (status) {
+              // 변경된 파일만 추가 (.env, node_modules 제외)
+              const files = status.split('\n').map(l => l.substring(3).trim())
+                .filter(f => f && !f.includes('.env') && !f.includes('node_modules') && !f.includes('.last-sync'));
+              if (files.length > 0) {
+                execSync(`git add ${files.map(f => `"${f}"`).join(' ')}`, { cwd: project.path, encoding: 'utf8' });
+                execSync('git commit -m "feat: discord bot auto-commit"', { cwd: project.path, encoding: 'utf8', timeout: 10000 });
+                execSync('git push 2>/dev/null', { cwd: project.path, encoding: 'utf8', timeout: 30000 });
+                resolve(output.trim() + `\n\n✅ ${files.length}개 파일 커밋 + 푸시 완료`);
+              } else { resolve(output.trim()); }
+            } else { resolve(output.trim()); }
+          } catch {
+            resolve(output.trim() + '\n\n⚠️ 자동 푸시 실패 (수동 push 필요)');
+          }
+        }
         else reject(new Error(error.substring(0, 200) || `Exit code: ${code}`));
       });
       proc.on('error', reject);
     });
   }
 
-  // ─── C 모드: Remote Tasks (Mac 꺼져 있을 때) ───
+  // ─── GitHub API 클라이언트 ───
+  getOctokit() {
+    const token = process.env.GITHUB_TOKEN;
+    if (!token) return null;
+    return new Octokit({ auth: token });
+  }
+
+  // ─── C 모드: Mac OFF → Anthropic API로 코드 생성 + GitHub API로 커밋/PR ───
   async runRemote(userMessage, expertKey, project, history) {
     const repo = this.getGitHubRepo(project.path);
     if (!repo) {
-      return `⚠️ **${project.name}**은 GitHub에 연결되어 있지 않아서 원격 작업이 불가합니다.\nMac을 켜고 다시 시도하거나, \`git remote add origin\`으로 GitHub을 연결해주세요.`;
+      return `⚠️ **${project.name}**은 GitHub에 연결되어 있지 않습니다.`;
     }
 
-    const systemPrompt = this.loadSystemPrompt(expertKey);
+    const octokit = this.getOctokit();
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!octokit || !apiKey) {
+      return `⚠️ GitHub 토큰 또는 Anthropic API 키가 없습니다.`;
+    }
+
+    const [owner, repoName] = repo.split('/');
     const expert = EXPERTS[expertKey];
+    const client = new Anthropic({ apiKey });
 
-    // Claude Remote Task 실행
     try {
-      const triggerPrompt = `${systemPrompt}\n\n---\nGitHub repo: ${repo}\n프로젝트: ${project.name}\n\n유저 요청: ${userMessage}\n\n작업 완료 후 변경사항을 커밋하고, 가능하면 PR을 만들어주세요.`;
+      // 1. GitHub에서 현재 파일 구조 가져오기
+      let repoTree = '';
+      try {
+        const { data: tree } = await octokit.rest.git.getTree({
+          owner, repo: repoName, tree_sha: 'HEAD', recursive: 'true'
+        });
+        repoTree = tree.tree
+          .filter(t => t.type === 'blob')
+          .map(t => t.path)
+          .slice(0, 50)
+          .join('\n');
+      } catch {}
 
-      const result = execSync(
-        `claude -p ${JSON.stringify(triggerPrompt)} --dangerously-skip-permissions 2>&1`,
-        { encoding: 'utf8', timeout: 180000 }
-      ).trim();
+      // 2. Claude에게 코드 생성 요청
+      const codeResp = await client.messages.create({
+        model: 'claude-sonnet-4-6-20250514',
+        max_tokens: 4096,
+        system: `당신은 ${expert.name}(${expert.description})입니다.
+GitHub 저장소 ${repo}의 코드를 수정해야 합니다.
 
-      return `☁️ **클라우드 모드** (Mac 오프라인)\n📦 GitHub: \`${repo}\`\n\n${result}`;
+응답 형식 (반드시 이 형식으로):
+---FILE: 파일경로---
+파일 전체 내용
+---END---
+
+여러 파일 수정 시 위 블록을 반복하세요.
+마지막에 ---COMMIT: 커밋 메시지--- 를 적어주세요.
+한국어로 설명하되 코드는 영어로 작성하세요.`,
+        messages: [{ role: 'user', content: `파일 구조:\n${repoTree}\n\n요청: ${userMessage}` }],
+      });
+
+      const codeText = codeResp.content[0]?.text || '';
+
+      // 3. 파일 블록 파싱
+      const fileBlocks = [];
+      const fileRegex = /---FILE:\s*(.+?)---\n([\s\S]*?)---END---/g;
+      let match;
+      while ((match = fileRegex.exec(codeText)) !== null) {
+        fileBlocks.push({ path: match[1].trim(), content: match[2].trim() });
+      }
+
+      const commitMatch = codeText.match(/---COMMIT:\s*(.+?)---/);
+      const commitMsg = commitMatch ? commitMatch[1].trim() : `feat: ${userMessage.substring(0, 50)}`;
+
+      if (fileBlocks.length === 0) {
+        // 코드 생성 없이 답변만 온 경우
+        return `☁️ **${expert.emoji} ${expert.name}** (클라우드)\n\n${codeText.substring(0, 1800)}`;
+      }
+
+      // 4. GitHub API로 브랜치 생성 + 파일 커밋
+      const branchName = `bot/${Date.now()}`;
+
+      // main 브랜치의 최신 SHA 가져오기
+      const { data: ref } = await octokit.rest.git.getRef({
+        owner, repo: repoName, ref: 'heads/main'
+      });
+      const baseSha = ref.object.sha;
+
+      // 새 브랜치 생성
+      await octokit.rest.git.createRef({
+        owner, repo: repoName,
+        ref: `refs/heads/${branchName}`,
+        sha: baseSha
+      });
+
+      // 파일들 커밋
+      for (const file of fileBlocks) {
+        const content = Buffer.from(file.content).toString('base64');
+        let fileSha;
+        try {
+          const { data: existing } = await octokit.rest.repos.getContent({
+            owner, repo: repoName, path: file.path, ref: branchName
+          });
+          fileSha = existing.sha;
+        } catch {} // 새 파일이면 sha 없음
+
+        await octokit.rest.repos.createOrUpdateFileContents({
+          owner, repo: repoName,
+          path: file.path,
+          message: commitMsg,
+          content,
+          branch: branchName,
+          ...(fileSha ? { sha: fileSha } : {}),
+        });
+      }
+
+      // 5. PR 생성
+      const { data: pr } = await octokit.rest.pulls.create({
+        owner, repo: repoName,
+        title: commitMsg,
+        head: branchName,
+        base: 'main',
+        body: `## Discord 원격 작업\n\n**요청:** ${userMessage}\n**전문가:** ${expert.emoji} ${expert.name}\n**파일:** ${fileBlocks.map(f => f.path).join(', ')}\n\n🤖 Generated from Discord`,
+      });
+
+      return `☁️ **클라우드 커밋 완료!**\n\n📦 GitHub: \`${repo}\`\n📝 ${fileBlocks.length}개 파일 수정\n🔀 PR 생성: ${pr.html_url}\n\n${fileBlocks.map(f => `• \`${f.path}\``).join('\n')}`;
+
     } catch (e) {
-      // Remote Tasks API fallback
-      return [
-        `☁️ **클라우드 모드 안내**`,
-        ``,
-        `Mac이 오프라인이라 로컬 실행이 불가합니다.`,
-        `GitHub 저장소: \`${repo}\``,
-        ``,
-        `**수동 실행 방법:**`,
-        `\`\`\``,
-        `claude task create \\`,
-        `  --repo ${repo} \\`,
-        `  --prompt "${userMessage}"`,
-        `\`\`\``,
-        ``,
-        `또는 Mac을 켜면 자동으로 로컬 모드로 전환됩니다.`,
-      ].join('\n');
+      return `❌ 원격 작업 실패: ${e.message?.substring(0, 150)}`;
     }
   }
 
@@ -343,41 +454,175 @@ class AgentBot {
     return `[현재 운영 중인 전체 프로젝트]\n${lines.join('\n')}\n`;
   }
 
-  // ─── 단순 질문 (프로젝트 무관) ───
+  // ─── 단순 질문: Anthropic API 직접 호출 (Mac 꺼져도 동작) ───
   async runQuestion(userMessage, expertKey, history) {
-    const systemPrompt = this.loadSystemPrompt(expertKey);
-    // 프로젝트 물어볼 때만 컨텍스트 포함
+    const expert = EXPERTS[expertKey];
+    const systemPrompt = `당신은 ${expert.name}(${expert.description})입니다. 한국어로 간결하게 답변하세요.`;
     const needsProjects = /프로젝트|세션|상태|목록|뭐 하고|돌아가/i.test(userMessage);
     const ctx = needsProjects ? this.getProjectsContext() : '';
-    const prompt = `${systemPrompt}\n\n${ctx}${history ? `[대화]\n${history}\n\n` : ''}${userMessage}`;
+    const fullMsg = `${ctx}${history ? `[이전 대화]\n${history}\n\n` : ''}${userMessage}`;
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--model', 'haiku'], {
-        timeout: 120000,
-        env: { ...process.env },
+    // Anthropic API 직접 호출 (로컬 Mac 불필요)
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('API_KEY 없음');
+      const client = new Anthropic({ apiKey });
+      const response = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: fullMsg }],
       });
-      let output = '';
-      let error = '';
-      proc.stdout.on('data', d => output += d);
-      proc.stderr.on('data', d => error += d);
-      proc.on('close', code => {
-        if (code === 0 && output.trim()) resolve(output.trim());
-        else reject(new Error(error.substring(0, 200) || `Exit code: ${code}`));
+      return response.content[0]?.text || '응답 없음';
+    } catch (apiErr) {
+      // API 실패 시 로컬 claude CLI 폴백
+      console.log(`[Bot] API 실패, CLI 폴백: ${apiErr.message}`);
+      const prompt = `${systemPrompt}\n\n${fullMsg}`;
+      return new Promise((resolve, reject) => {
+        const proc = spawn('claude', ['-p', prompt, '--dangerously-skip-permissions', '--model', 'haiku'], {
+          timeout: 120000, env: { ...process.env },
+        });
+        let output = '', error = '';
+        proc.stdout.on('data', d => output += d);
+        proc.stderr.on('data', d => error += d);
+        proc.on('close', code => {
+          if (code === 0 && output.trim()) resolve(output.trim());
+          else reject(new Error(error.substring(0, 200) || `CLI도 실패`));
+        });
+        proc.on('error', reject);
       });
-      proc.on('error', reject);
-    });
+    }
   }
 
   // ─── 명령어 ───
   async handleCommand(msg) {
-    const [cmd] = msg.content.slice(1).split(' ');
+    const [cmd, ...args] = msg.content.slice(1).split(' ');
     switch (cmd) {
       case 'status': await this.cmdStatus(msg); break;
       case 'sessions': await this.cmdSessions(msg); break;
       case 'experts': await this.cmdExperts(msg); break;
       case 'projects': await this.cmdProjects(msg); break;
+      case 'recommend': await this.cmdRecommend(msg, args.join(' ')); break;
+      case 'skills': await this.cmdSkills(msg); break;
       case 'help': await this.cmdHelp(msg); break;
     }
+  }
+
+  // ─── 스킬 카테고리 ───
+  static SKILL_CATEGORIES = {
+    '📄 문서 생성': {
+      skills: ['docx','pdf','pptx','xlsx','doc-coauthoring','internal-comms'],
+      keywords: ['문서','워드','ppt','피피티','엑셀','pdf','슬라이드','프레젠테이션','발표','보고서','스프레드시트','표']
+    },
+    '🎨 디자인/UI': {
+      skills: ['frontend-design','canvas-design','ui-ux-pro-max','algorithmic-art','brand-guidelines','theme-factory','slack-gif-creator','web-artifacts-builder','supanova-design','supanova-redesign','supanova-soft','supanova-output'],
+      keywords: ['디자인','UI','UX','프론트','랜딩','웹사이트','아트','그림','로고','테마','gif','수파노바','랜딩페이지']
+    },
+    '🔍 리서치': {
+      skills: ['deep-research-main','deep-research-query','docs-guide-knowledge','vibeindex'],
+      keywords: ['리서치','조사','연구','검색','분석','비교','논문','문서 찾기','docs']
+    },
+    '🛠️ 개발 도구': {
+      skills: ['claude-api','mcp-builder','skill-creator','skillers-suda','webapp-testing','pumasi'],
+      keywords: ['API','MCP','스킬 만들기','테스트','개발','빌드','코딩','에이전트 만들기','품앗이']
+    },
+    '📋 기획/PRD': {
+      skills: ['show-me-the-prd','kkirikkiri'],
+      keywords: ['기획','PRD','기획서','서비스 기획','앱 기획','팀 구성','끼리끼리']
+    },
+    '🐙 Git/배포': {
+      skills: ['git-teacher-help','git-teacher-save','git-teacher-upload','git-teacher-review','git-teacher-setup','git-teacher-status'],
+      keywords: ['깃','git','커밋','푸시','PR','배포','GitHub','브랜치']
+    },
+    '📊 성장/멘토링': {
+      skills: ['vibe-sunsang-growth','vibe-sunsang-mentor','vibe-sunsang-knowledge','vibe-sunsang-onboard','vibe-sunsang-retro'],
+      keywords: ['성장','멘토','코칭','레벨','바선생','회고','온보딩']
+    },
+    '🔗 외부 연동': {
+      skills: ['nopal-orchestrate','nopal-setup'],
+      keywords: ['구글','메일','캘린더','스프레드시트','워크스페이스','노팔']
+    },
+  };
+
+  // ─── 스킬 추천 (자연어 매칭) ───
+  async cmdRecommend(msg, query) {
+    if (!query) {
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(0x6e7681).setDescription('사용법: `!recommend 하고 싶은 것`\n예: `!recommend PPT 만들고 싶어`')] });
+      return;
+    }
+
+    const q = query.toLowerCase();
+    const matches = [];
+
+    for (const [category, data] of Object.entries(AgentBot.SKILL_CATEGORIES)) {
+      const score = data.keywords.filter(k => q.includes(k.toLowerCase())).length;
+      if (score > 0) {
+        matches.push({ category, skills: data.skills, score });
+      }
+    }
+
+    // 키워드 매칭 안 되면 API로 스마트 매칭
+    if (matches.length === 0) {
+      try {
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (apiKey) {
+          const client = new Anthropic({ apiKey });
+          const allSkills = Object.entries(AgentBot.SKILL_CATEGORIES)
+            .map(([cat, d]) => `${cat}: ${d.skills.join(', ')}`)
+            .join('\n');
+          const resp = await client.messages.create({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 300,
+            messages: [{ role: 'user', content: `사용자 요청: "${query}"\n\n아래 스킬 카테고리에서 가장 관련 있는 것을 추천해줘. 카테고리명과 스킬명만 간결하게.\n\n${allSkills}` }],
+          });
+          const aiResult = resp.content[0]?.text || '';
+          await msg.reply({
+            embeds: [new EmbedBuilder()
+              .setColor(0x22c55e)
+              .setTitle(`🔎 "${query}" 추천 스킬`)
+              .setDescription(aiResult)
+              .setFooter({ text: 'AI 매칭' })
+            ]
+          });
+          return;
+        }
+      } catch {}
+    }
+
+    if (matches.length === 0) {
+      await msg.reply({ embeds: [new EmbedBuilder().setColor(0x6e7681).setDescription(`"${query}"에 맞는 스킬을 찾지 못했어요.`)] });
+      return;
+    }
+
+    matches.sort((a, b) => b.score - a.score);
+    const desc = matches.slice(0, 3).map(m =>
+      `**${m.category}**\n${m.skills.map(s => `\`${s}\``).join(' ')}`
+    ).join('\n\n');
+
+    await msg.reply({
+      embeds: [new EmbedBuilder()
+        .setColor(0x22c55e)
+        .setTitle(`🔎 "${query}" 추천 스킬`)
+        .setDescription(desc)
+        .setFooter({ text: `${matches.reduce((s, m) => s + m.skills.length, 0)}개 스킬 매칭` })
+      ]
+    });
+  }
+
+  // ─── 스킬 목록 (카테고리별) ───
+  async cmdSkills(msg) {
+    const desc = Object.entries(AgentBot.SKILL_CATEGORIES).map(([cat, data]) =>
+      `**${cat}**\n${data.skills.map(s => `\`${s}\``).join(' ')}`
+    ).join('\n\n');
+
+    await msg.reply({
+      embeds: [new EmbedBuilder()
+        .setColor(0xa855f7)
+        .setTitle('⬡ 스킬 목록 (카테고리별)')
+        .setDescription(desc)
+        .setFooter({ text: `총 ${Object.values(AgentBot.SKILL_CATEGORIES).reduce((s, d) => s + d.skills.length, 0)}개 스킬` })
+      ]
+    });
   }
 
   // ─── 승인 감지: "승인", "ㅇㅇ", "진행해", "y" 등 ───
@@ -385,55 +630,42 @@ class AgentBot {
     return /^(승인|ㅇㅇ|진행|허용|ㅇ|y|yes|ok|고|해줘|해)$/i.test(text.trim());
   }
 
-  // ─── 대기 중인 세션에 승인 보내기 ───
+  // ─── 승인: 모든 idle claude 프로세스에 "1" 전송 ───
   async approveWaiting(msg) {
-    const sessions = this.dashboardData.activeSessions || [];
-    const waiting = sessions.filter(s => s.status === 'waiting');
-
-    if (!waiting.length) {
-      await msg.reply({ embeds: [new EmbedBuilder().setColor(0x6e7681).setDescription('대기 중인 세션이 없습니다.')] });
-      return true;
-    }
-
     let approved = 0;
-    let methods = [];
-    for (const s of waiting) {
-      try {
-        const tty = execSync(`ps -p ${s.pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
-        if (tty && tty !== '??' && tty !== '') {
-          // 방법 1: python으로 TTY에 직접 쓰기 (가장 확실)
-          try {
-            execSync(`python3 -c "import os; fd=os.open('/dev/${tty}',os.O_WRONLY); os.write(fd,b'1\\n'); os.close(fd)"`, { timeout: 3000 });
-            approved++;
-            methods.push(`${s.projectName}: /dev/${tty}`);
-            continue;
-          } catch {}
+    let targets = [];
 
-          // 방법 2: printf로 직접 쓰기
-          try {
-            execSync(`printf '1\\n' > /dev/${tty}`, { timeout: 3000 });
-            approved++;
-            methods.push(`${s.projectName}: printf`);
-            continue;
-          } catch {}
-        }
-      } catch (e) {
-        console.log(`[Bot] TTY 찾기 실패 (${s.projectName}): ${e.message}`);
+    try {
+      // 구조화된 ps 출력으로 안전하게 파싱
+      const psOut = execSync(`ps -eo pid=,tty=,%cpu= -p $(pgrep -x claude 2>/dev/null | tr '\\n' ',')0 2>/dev/null`, { encoding: 'utf8' });
+      const procs = psOut.trim().split('\n').filter(Boolean).map(line => {
+        const [pid, tty, cpu] = line.trim().split(/\s+/);
+        return { pid, cpu: parseFloat(cpu) || 0, tty };
+      }).filter(p => p.cpu < 3 && p.tty && /^ttys\d+$/.test(p.tty)); // TTY 형식 검증
+
+      for (const p of procs) {
+        try {
+          // TTY 형식 한번 더 검증
+          if (!/^ttys\d{3,4}$/.test(p.tty)) continue;
+          execSync(`printf '1\\n' > /dev/${p.tty}`, { timeout: 2000 });
+          approved++;
+          targets.push(p.tty);
+        } catch {}
       }
-    }
+    } catch {}
 
     if (approved > 0) {
       await msg.reply({
         embeds: [new EmbedBuilder()
           .setColor(0x22c55e)
-          .setDescription(`✅ ${approved}개 세션 승인 완료!\n${methods.map(m => `• ${m}`).join('\n')}`)
+          .setDescription(`✅ 승인 전송 (${approved}개 세션)`)
         ]
       });
     } else {
       await msg.reply({
         embeds: [new EmbedBuilder()
           .setColor(0xf59e0b)
-          .setDescription(`⚠️ 자동 승인 실패.\n터미널에서 직접 Y를 눌러주세요.\n대기 중: ${waiting.map(s => `${s.projectName} (PID:${s.pid})`).join(', ')}`)
+          .setDescription(`⚠️ 대기 중인 세션을 찾지 못했습니다.`)
         ]
       });
     }
@@ -516,6 +748,11 @@ class AgentBot {
           '`!sessions` — 활성 세션 목록',
           '`!projects` — 프로젝트 + GitHub 연결 상태',
           '`!experts` — 전문가 목록',
+          '`!skills` — 스킬 목록 (카테고리별)',
+          '`!recommend PPT 만들기` — 스킬 추천',
+          '',
+          '**팀 협업 모드**',
+          '메시지에 "팀", "같이", "협업" 포함 시 전문가들이 협업합니다',
         ].join('\n'))
       ]
     });
@@ -539,6 +776,79 @@ class AgentBot {
         ]
       });
     } catch (e) { console.error('[Bot] Notify error:', e.message); }
+  }
+
+  // ─── 멀티에이전트 협업: 에이전트끼리 소통하며 작업 ───
+  async runTeamWork(msg, expertKey, userMessage, history) {
+    const expert = EXPERTS[expertKey];
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) { return await this.handleExpertMessage(msg, expertKey); }
+
+    const client = new Anthropic({ apiKey });
+    const allExperts = Object.entries(EXPERTS).map(([k, e]) => `${e.emoji} ${e.name}(${e.description})`).join(', ');
+
+    // Step 1: 리드 에이전트가 계획 수립 + 누구에게 넘길지 결정
+    const planResp = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      system: `당신은 ${expert.name}(${expert.description})입니다. 팀에는 ${allExperts}가 있습니다.
+사용자 요청을 분석하고:
+1. 당신이 직접 답변할 내용을 작성하세요
+2. 다른 전문가에게 넘겨야 할 부분이 있으면 마지막 줄에 "→ @전문가이름: 요청내용" 형식으로 적으세요
+3. 혼자 처리 가능하면 넘기지 마세요
+한국어로 답변하세요.`,
+      messages: [{ role: 'user', content: `${history ? `[대화]\n${history}\n\n` : ''}${userMessage}` }],
+    });
+
+    const planText = planResp.content[0]?.text || '';
+
+    // 리드 에이전트 응답 전송
+    const mainChunks = splitMessage(planText.split('\n→')[0].trim(), 1900);
+    await msg.reply({
+      embeds: [new EmbedBuilder()
+        .setColor(expert.color)
+        .setAuthor({ name: `${expert.emoji} ${expert.name}` })
+        .setDescription(mainChunks[0])
+        .setTimestamp()
+      ]
+    });
+
+    // Step 2: 다른 에이전트에게 넘기기
+    const handoffs = planText.match(/→ @(\w+):\s*(.+)/g);
+    if (handoffs) {
+      for (const handoff of handoffs) {
+        const m = handoff.match(/→ @(\w+):\s*(.+)/);
+        if (!m) continue;
+        const targetName = m[1].toLowerCase();
+        const targetTask = m[2];
+        const targetKey = Object.keys(EXPERTS).find(k =>
+          k === targetName || EXPERTS[k].name.toLowerCase() === targetName
+        );
+        if (!targetKey || targetKey === expertKey) continue;
+
+        const target = EXPERTS[targetKey];
+        await msg.channel.sendTyping();
+
+        // 대상 에이전트 응답
+        const resp = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 600,
+          system: `당신은 ${target.name}(${target.description})입니다. ${expert.name}이 당신에게 작업을 넘겼습니다. 한국어로 간결하게 답변하세요.`,
+          messages: [{ role: 'user', content: `${expert.name}의 요청: ${targetTask}\n\n원래 사용자 요청: ${userMessage}` }],
+        });
+
+        const respText = resp.content[0]?.text || '';
+        const respChunks = splitMessage(respText, 1900);
+        await msg.channel.send({
+          embeds: [new EmbedBuilder()
+            .setColor(target.color)
+            .setAuthor({ name: `${target.emoji} ${target.name} (${expert.name}이 요청)` })
+            .setDescription(respChunks[0])
+            .setTimestamp()
+          ]
+        });
+      }
+    }
   }
 
   async start() {
