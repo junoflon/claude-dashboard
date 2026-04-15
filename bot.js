@@ -9,7 +9,7 @@
 const { Client, GatewayIntentBits, EmbedBuilder, Events } = require('discord.js');
 const { spawn, execSync } = require('child_process');
 const Anthropic = require('@anthropic-ai/sdk');
-const { Octokit } = require('octokit');
+const { Octokit } = require('@octokit/rest');
 const fs = require('fs');
 const path = require('path');
 
