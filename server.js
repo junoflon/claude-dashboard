@@ -295,7 +295,7 @@ ${generatedPrompt}
         const resp = await client.messages.create({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 400,
-          messages: [{ role: 'user', content: `사용자가 "${data.query}"를 하고 싶다고 합니다.\n\n아래 스킬 목록에서 가장 적합한 스킬을 추천해주세요. 각 추천에 이유를 한 줄로 설명해주세요. 한국어로 간결하게.\n\n${data.skills}` }],
+          messages: [{ role: 'user', content: `사용자가 "${data.query}"를 하고 싶다고 합니다.\n\n아래 목록(스킬, 플러그인, MCP)에서 가장 적합한 도구를 추천해주세요. 각 추천에 타입(스킬/플러그인)과 이유를 한 줄로 설명. 한국어로 간결하게.\n\n${data.skills}` }],
         });
         const text = resp.content[0]?.text || '';
         res.writeHead(200, { 'Content-Type': 'application/json' });

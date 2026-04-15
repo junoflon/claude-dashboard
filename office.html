@@ -1060,7 +1060,7 @@ tr:hover td { background: var(--bg-card-hover); }
     </div>
     <div class="nav-section">System</div>
     <div class="nav-item" data-view="skills">
-      <span class="icon">⬡</span> 스킬 목록 <span class="badge">38</span>
+      <span class="icon">⬡</span> 도구 검색 <span class="badge">80+</span>
     </div>
     <div class="nav-item" data-view="logs">
       <span class="icon">▤</span> 활동 로그
@@ -1147,14 +1147,14 @@ tr:hover td { background: var(--bg-card-hover); }
       <div class="recommend-box" id="recommendBox">
         <div class="recommend-input-wrap">
           <span class="recommend-icon">🔎</span>
-          <input class="recommend-input" id="recommendInput" placeholder="무엇을 하고 싶으세요? (예: PPT 만들기, 랜딩페이지 디자인, 깃 사용법)" autocomplete="off">
+          <input class="recommend-input" id="recommendInput" placeholder="무엇을 하고 싶으세요? (예: PPT 만들기, 타입스크립트 린터, 코드 리뷰, 광고 소재)" autocomplete="off">
           <button class="recommend-btn" id="recommendBtn" onclick="searchSkills()">추천</button>
         </div>
         <div class="recommend-result" id="recommendResult"></div>
       </div>
 
       <!-- 카테고리별 스킬 -->
-      <div class="section-title" style="margin-top:20px">카테고리별 스킬</div>
+      <div class="section-title" style="margin-top:20px">카테고리별 (스킬 · 플러그인 · MCP)</div>
       <div id="skillCategories"></div>
 
       <div class="section-title" style="margin-top:20px">전체 목록</div>
@@ -1278,7 +1278,7 @@ function updateTime(){
 setInterval(updateTime,1000);updateTime();
 
 // ─── View titles ───
-const viewTitles={overview:'시스템 개요',sessions:'세션 모니터',office:'가상 오피스',skills:'스킬 목록',logs:'활동 로그',discord:'Discord 봇',settings:'설정'};
+const viewTitles={overview:'시스템 개요',sessions:'세션 모니터',office:'가상 오피스',skills:'도구 검색',logs:'활동 로그',discord:'Discord 봇',settings:'설정'};
 
 // ─── Navigation ───
 let currentView='overview';
@@ -1468,26 +1468,34 @@ refresh();setInterval(refresh,5000);
 
 // ─── Skill Recommendation ───
 const SKILL_CATS = {
-  '📄 문서 생성': { skills: ['docx','pdf','pptx','xlsx','doc-coauthoring','internal-comms'], keywords: ['문서','워드','ppt','피피티','엑셀','pdf','슬라이드','프레젠테이션','발표','보고서','스프레드시트','표'] },
-  '🎨 디자인/UI': { skills: ['frontend-design','canvas-design','ui-ux-pro-max','algorithmic-art','brand-guidelines','theme-factory','slack-gif-creator','web-artifacts-builder'], keywords: ['디자인','UI','UX','프론트','랜딩','웹사이트','아트','그림','로고','테마','gif'] },
-  '🔍 리서치': { skills: ['deep-research-main','deep-research-query','docs-guide-knowledge','vibeindex'], keywords: ['리서치','조사','연구','검색','분석','비교','논문','문서 찾기','docs'] },
-  '🛠️ 개발 도구': { skills: ['claude-api','mcp-builder','skill-creator','skillers-suda','webapp-testing','pumasi'], keywords: ['API','MCP','스킬 만들기','테스트','개발','빌드','코딩','에이전트','품앗이'] },
-  '📋 기획/PRD': { skills: ['show-me-the-prd','kkirikkiri'], keywords: ['기획','PRD','기획서','서비스 기획','앱 기획','팀'] },
-  '🐙 Git/배포': { skills: ['git-teacher-help','git-teacher-save','git-teacher-upload','git-teacher-review','git-teacher-setup','git-teacher-status'], keywords: ['깃','git','커밋','푸시','PR','배포','GitHub','브랜치'] },
-  '📊 성장/멘토링': { skills: ['vibe-sunsang-growth','vibe-sunsang-mentor','vibe-sunsang-knowledge','vibe-sunsang-onboard','vibe-sunsang-retro'], keywords: ['성장','멘토','코칭','레벨','바선생','회고'] },
-  '🔗 외부 연동': { skills: ['nopal-orchestrate','nopal-setup'], keywords: ['구글','메일','캘린더','워크스페이스','노팔'] },
+  '📄 문서 생성': { type:'skill', items: ['docx','pdf','pptx','xlsx','doc-coauthoring','internal-comms'], keywords: ['문서','워드','ppt','피피티','엑셀','pdf','슬라이드','프레젠테이션','발표','보고서','스프레드시트','표'] },
+  '🎨 디자인/UI': { type:'skill', items: ['frontend-design','canvas-design','ui-ux-pro-max','algorithmic-art','brand-guidelines','theme-factory','slack-gif-creator','web-artifacts-builder','supanova-design','supanova-redesign'], keywords: ['디자인','UI','UX','프론트','랜딩','웹사이트','아트','그림','로고','테마','gif','수파노바'] },
+  '🔍 리서치': { type:'skill', items: ['deep-research-main','deep-research-query','docs-guide-knowledge','vibeindex'], keywords: ['리서치','조사','연구','검색','분석','비교','논문','문서 찾기','docs'] },
+  '🛠️ 개발 도구': { type:'skill', items: ['claude-api','mcp-builder','skill-creator','skillers-suda','webapp-testing','pumasi'], keywords: ['API','MCP','스킬 만들기','테스트','개발','빌드','코딩','에이전트','품앗이'] },
+  '📋 기획/PRD': { type:'skill', items: ['show-me-the-prd','kkirikkiri'], keywords: ['기획','PRD','기획서','서비스 기획','앱 기획','팀'] },
+  '🐙 Git/배포': { type:'skill', items: ['git-teacher-help','git-teacher-save','git-teacher-upload','git-teacher-review','git-teacher-setup','git-teacher-status'], keywords: ['깃','git','커밋','푸시','PR','배포','GitHub','브랜치'] },
+  '📊 성장/멘토링': { type:'skill', items: ['vibe-sunsang-growth','vibe-sunsang-mentor','vibe-sunsang-knowledge','vibe-sunsang-onboard','vibe-sunsang-retro'], keywords: ['성장','멘토','코칭','레벨','바선생','회고'] },
+  '🔗 Google Workspace': { type:'skill', items: ['nopal-orchestrate','nopal-setup'], keywords: ['구글','메일','캘린더','워크스페이스','노팔','gmail','sheets'] },
+  '🔌 개발 플러그인': { type:'plugin', items: ['code-review','code-simplifier','commit-commands','feature-dev','pr-review-toolkit','plugin-dev','hookify','ralph-loop','security-guidance'], keywords: ['코드 리뷰','커밋','PR','보안','훅','플러그인','리뷰'] },
+  '🔧 언어 서버 (LSP)': { type:'plugin', items: ['typescript-lsp','pyright-lsp','gopls-lsp','rust-analyzer-lsp','ruby-lsp','swift-lsp','kotlin-lsp','java/jdtls-lsp','clangd-lsp','lua-lsp','php-lsp','csharp-lsp'], keywords: ['타입스크립트','파이썬','고','러스트','루비','스위프트','코틀린','자바','C','lua','php','lsp','자동완성','린터'] },
+  '🤖 AI/에이전트': { type:'plugin', items: ['agent-sdk-dev','claude-code-setup','claude-md-management','codex','mcp-server-dev','playground'], keywords: ['에이전트','SDK','claude','코덱스','codex','MCP','플레이그라운드'] },
+  '🎓 학습/스타일': { type:'plugin', items: ['learning-output-style','explanatory-output-style','math-olympiad'], keywords: ['학습','교육','수학','올림피아드','설명','스타일'] },
+  '📢 마케팅/광고': { type:'skill', items: ['ad-creative','content-strategy'], keywords: ['광고','마케팅','크리에이티브','카피','헤드라인','콘텐츠 전략','소재'] },
 };
 
 function renderCategories() {
   const el = document.getElementById('skillCategories');
   if (!el) return;
-  el.innerHTML = `<div class="cat-grid">${Object.entries(SKILL_CATS).map(([cat, data]) =>
-    `<div class="cat-card" onclick="this.classList.toggle('open')">
-      <div class="cat-name">${cat}</div>
-      <div class="cat-count">${data.skills.length}개 스킬</div>
-      <div class="cat-skills-hidden">${data.skills.map(s => `<span class="rec-skill">${s}</span>`).join('')}</div>
-    </div>`
-  ).join('')}</div>`;
+  const typeLabel = {skill:'스킬',plugin:'플러그인',mcp:'MCP'};
+  el.innerHTML = `<div class="cat-grid">${Object.entries(SKILL_CATS).map(([cat, data]) => {
+    const badge = typeLabel[data.type] || '스킬';
+    const badgeColor = data.type==='plugin'?'var(--accent)':data.type==='mcp'?'var(--purple)':'var(--green)';
+    return `<div class="cat-card" onclick="this.classList.toggle('open')">
+      <div class="cat-name">${cat} <span style="font-size:9px;color:${badgeColor};font-weight:600;margin-left:4px">${badge}</span></div>
+      <div class="cat-count">${data.items.length}개</div>
+      <div class="cat-skills-hidden">${data.items.map(s => `<span class="rec-skill" style="color:${badgeColor}">${s}</span>`).join('')}</div>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 function searchSkills() {
@@ -1502,17 +1510,20 @@ function searchSkills() {
   const matches = [];
   for (const [cat, data] of Object.entries(SKILL_CATS)) {
     const score = data.keywords.filter(k => q.includes(k.toLowerCase())).length;
-    if (score > 0) matches.push({ cat, skills: data.skills, score });
+    if (score > 0) matches.push({ cat, items: data.items, type: data.type, score });
   }
   matches.sort((a, b) => b.score - a.score);
 
   if (matches.length > 0) {
-    result.innerHTML = matches.slice(0, 3).map(m =>
-      `<div class="rec-card">
-        <div class="rec-cat">${m.cat}</div>
-        <div class="rec-skills">${m.skills.map(s => `<span class="rec-skill">${s}</span>`).join('')}</div>
-      </div>`
-    ).join('');
+    const typeLabel = {skill:'스킬',plugin:'플러그인',mcp:'MCP'};
+    result.innerHTML = matches.slice(0, 4).map(m => {
+      const badge = typeLabel[m.type]||'스킬';
+      const color = m.type==='plugin'?'var(--accent)':m.type==='mcp'?'var(--purple)':'var(--green)';
+      return `<div class="rec-card">
+        <div class="rec-cat">${m.cat} <span style="font-size:9px;color:${color};margin-left:4px">${badge}</span></div>
+        <div class="rec-skills">${m.items.map(s => `<span class="rec-skill" style="color:${color}">${s}</span>`).join('')}</div>
+      </div>`;
+    }).join('');
   } else {
     result.innerHTML = '<div class="rec-loading">키워드 매칭 없음 — AI 추천 중...</div>';
   }
