@@ -631,43 +631,52 @@ GitHub 저장소 ${repo}의 코드를 수정해야 합니다.
     return /^(승인|ㅇㅇ|진행|허용|ㅇ|y|yes|ok|고|해줘|해)$/i.test(text.trim());
   }
 
-  // ─── 승인: 모든 idle claude 프로세스에 "1" 전송 ───
+  // ─── 승인: 로컬 프록시 또는 직접 TTY ───
   async approveWaiting(msg) {
     let approved = 0;
-    let targets = [];
+    const proxyUrl = process.env.APPROVE_PROXY_URL; // 예: https://xxx.ngrok.io
 
-    try {
-      // 구조화된 ps 출력으로 안전하게 파싱
-      const psOut = execSync(`ps -eo pid=,tty=,%cpu= -p $(pgrep -x claude 2>/dev/null | tr '\\n' ',')0 2>/dev/null`, { encoding: 'utf8' });
-      const procs = psOut.trim().split('\n').filter(Boolean).map(line => {
-        const [pid, tty, cpu] = line.trim().split(/\s+/);
-        return { pid, cpu: parseFloat(cpu) || 0, tty };
-      }).filter(p => p.cpu < 3 && p.tty && /^ttys\d+$/.test(p.tty)); // TTY 형식 검증
-
-      for (const p of procs) {
-        try {
-          // TTY 형식 한번 더 검증
-          if (!/^ttys\d{3,4}$/.test(p.tty)) continue;
-          execSync(`printf '1\\n' > /dev/${p.tty}`, { timeout: 2000 });
-          approved++;
-          targets.push(p.tty);
-        } catch {}
+    // 방법 1: 로컬 프록시 호출 (Railway에서도 동작)
+    if (proxyUrl) {
+      try {
+        const resp = await fetch(`${proxyUrl}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: process.env.APPROVE_SECRET || 'approve-me' }),
+        });
+        const data = await resp.json();
+        approved = data.approved || 0;
+      } catch (e) {
+        console.log(`[Bot] 프록시 호출 실패: ${e.message}`);
       }
-    } catch {}
+    }
+
+    // 방법 2: 로컬에서 직접 (Mac에서 server.js 돌릴 때)
+    if (approved === 0) {
+      try {
+        const psOut = execSync(`pgrep -x claude 2>/dev/null`, { encoding: 'utf8' }).trim();
+        if (psOut) {
+          const pids = psOut.split('\n').filter(Boolean);
+          for (const pid of pids) {
+            try {
+              const tty = execSync(`ps -p ${pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
+              if (tty && /^ttys\d+$/.test(tty)) {
+                execSync(`printf '1\\n' > /dev/${tty}`, { timeout: 2000 });
+                approved++;
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
 
     if (approved > 0) {
       await msg.reply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x22c55e)
-          .setDescription(`✅ 승인 전송 (${approved}개 세션)`)
-        ]
+        embeds: [new EmbedBuilder().setColor(0x22c55e).setDescription(`✅ ${approved}개 세션 승인 완료`)]
       });
     } else {
       await msg.reply({
-        embeds: [new EmbedBuilder()
-          .setColor(0xf59e0b)
-          .setDescription(`⚠️ 대기 중인 세션을 찾지 못했습니다.`)
-        ]
+        embeds: [new EmbedBuilder().setColor(0xf59e0b).setDescription(`⚠️ 승인 실패 — Mac이 꺼져있거나 대기 중인 세션이 없습니다.\n\nMac에서 \`node approve-proxy.js\`를 실행하고 APPROVE_PROXY_URL을 설정해주세요.`)]
       });
     }
     return true;
