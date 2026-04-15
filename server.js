@@ -284,6 +284,29 @@ ${generatedPrompt}
       return;
     }
 
+    // ─── AI 스킬 추천 ───
+    if (req.url === '/api/recommend' && req.method === 'POST') {
+      try {
+        const data = await parseBody(req);
+        const Anthropic = require('@anthropic-ai/sdk');
+        const apiKey = process.env.ANTHROPIC_API_KEY;
+        if (!apiKey) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ recommendation: null })); return; }
+        const client = new Anthropic({ apiKey });
+        const resp = await client.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 400,
+          messages: [{ role: 'user', content: `사용자가 "${data.query}"를 하고 싶다고 합니다.\n\n아래 스킬 목록에서 가장 적합한 스킬을 추천해주세요. 각 추천에 이유를 한 줄로 설명해주세요. 한국어로 간결하게.\n\n${data.skills}` }],
+        });
+        const text = resp.content[0]?.text || '';
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ recommendation: text }));
+      } catch (e) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ recommendation: null, error: e.message }));
+      }
+      return;
+    }
+
     if (req.url === '/api/dashboard') {
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(dashboardData));
     } else if (req.url === '/' || req.url === '/index.html') {
