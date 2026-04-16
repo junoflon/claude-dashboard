@@ -814,6 +814,46 @@ tr:hover td { background: var(--bg-card-hover); }
   color: var(--text-bright);
 }
 
+/* ─── Completion Notifications ─── */
+.notif-stack {
+  position: fixed;
+  top: 20px; right: 20px;
+  z-index: 900;
+  display: flex; flex-direction: column; gap: 10px;
+  max-width: 360px;
+  pointer-events: none;
+}
+.notif-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  pointer-events: auto;
+  cursor: pointer;
+  animation: notifSlide 0.3s cubic-bezier(0.16,1,0.3,1);
+  transition: transform 0.2s, opacity 0.3s;
+}
+.notif-card:hover { transform: translateX(-4px); border-color: var(--green); }
+.notif-card.closing { opacity: 0; transform: translateX(100px); }
+.notif-card.completed { border-left: 3px solid var(--green); }
+.notif-card.waiting { border-left: 3px solid var(--orange); }
+.notif-card.error { border-left: 3px solid var(--red); }
+.notif-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.notif-icon { font-size: 16px; }
+.notif-title { font-size: 12px; font-weight: 600; color: var(--text-bright); flex: 1; }
+.notif-close {
+  background: none; border: none;
+  color: var(--text-dim); font-size: 16px;
+  cursor: pointer; padding: 0 4px;
+  line-height: 1;
+}
+.notif-close:hover { color: var(--text); }
+.notif-body { font-size: 11px; color: var(--text); line-height: 1.5; }
+.notif-time { font-size: 9px; color: var(--text-dim); margin-top: 4px; font-family: var(--mono); }
+.notif-action { font-size: 10px; color: var(--green); margin-top: 6px; }
+@keyframes notifSlide { from { opacity:0; transform:translateX(60px); } to { opacity:1; transform:translateX(0); } }
+
 /* ─── Skill Recommend ─── */
 .recommend-box {
   background: var(--bg-card);
@@ -1040,6 +1080,9 @@ tr:hover td { background: var(--bg-card-hover); }
 </style>
 </head>
 <body>
+
+<!-- Completion Notifications -->
+<div class="notif-stack" id="notifStack"></div>
 
 <!-- Sidebar -->
 <aside class="sidebar">
@@ -1422,6 +1465,64 @@ function renderLogs(history){
 
 // ─── Data ───
 let lastSessions=[];
+let prevStatusMap=new Map(); // sessionId → 이전 status
+let notifiedCompletions=new Set();
+
+// ─── 알림 생성 ───
+function addNotification(type, title, body, sessionId, project){
+  const stack=document.getElementById('notifStack');
+  const card=document.createElement('div');
+  card.className=`notif-card ${type}`;
+  const icon={completed:'✅',waiting:'⏳',error:'❌'}[type]||'ℹ️';
+  card.innerHTML=`<div class="notif-head">
+    <span class="notif-icon">${icon}</span>
+    <span class="notif-title">${esc(title)}</span>
+    <button class="notif-close" onclick="event.stopPropagation();this.closest('.notif-card').classList.add('closing');setTimeout(()=>this.closest('.notif-card')?.remove(),300)">×</button>
+  </div>
+  <div class="notif-body">${esc(body)}</div>
+  <div class="notif-time">${new Date().toLocaleTimeString('ko-KR')}</div>
+  ${sessionId?`<div class="notif-action">클릭 → 터미널 이동</div>`:''}`;
+  // 클릭 시 터미널 포커스
+  card.addEventListener('click',async()=>{
+    if(sessionId){
+      try{
+        await fetch('/api/focus-terminal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId})});
+      }catch{}
+    }
+  });
+  stack.appendChild(card);
+  // 브라우저 알림
+  if(Notification.permission==='granted'){
+    new Notification(`${icon} ${title}`,{body,icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">'+icon+'</text></svg>'});
+  }
+}
+// 알림 권한 요청
+if('Notification' in window && Notification.permission==='default')Notification.requestPermission();
+
+// ─── 상태 변화 감지 ───
+function detectStatusChanges(sessions){
+  for(const s of sessions){
+    const prev=prevStatusMap.get(s.sessionId);
+    const curr=s.status||'idle';
+    // working → idle = 완료
+    if(prev==='working' && curr==='idle' && !notifiedCompletions.has(s.sessionId+':'+s.lastActivityAgo)){
+      notifiedCompletions.add(s.sessionId+':'+s.lastActivityAgo);
+      addNotification('completed',`${s.projectName} 작업 완료`,s.lastAction?s.lastAction.substring(0,120):'세션이 유휴 상태로 전환됨',s.sessionId,s.projectName);
+    }
+    // idle → waiting = 허용 필요
+    if(prev!=='waiting' && curr==='waiting'){
+      const tool=s.pendingTool;
+      const body=tool?`${tool.name}: ${tool.detail?.substring(0,100)||''}`:'터미널에서 Y/N 승인 필요';
+      addNotification('waiting',`${s.projectName} 허용 필요`,body,s.sessionId,s.projectName);
+    }
+    prevStatusMap.set(s.sessionId,curr);
+  }
+  // 종료된 세션 정리
+  const activeIds=new Set(sessions.map(s=>s.sessionId));
+  for(const id of prevStatusMap.keys()){
+    if(!activeIds.has(id))prevStatusMap.delete(id);
+  }
+}
 async function refresh(){
   try{
     const r=await fetch('/api/dashboard');
@@ -1437,6 +1538,7 @@ async function refresh(){
     else{dot.className='status-dot offline';ss.textContent='오프라인'}
 
     const sessions=d.activeSessions||[];
+    detectStatusChanges(sessions);
     lastSessions=sessions;
     const wk=sessions.filter(s=>s.status==='working').length;
     const wt=sessions.filter(s=>s.status==='waiting').length;

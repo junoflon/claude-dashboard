@@ -284,6 +284,45 @@ ${generatedPrompt}
       return;
     }
 
+    // ─── 터미널 포커스 (해당 세션이 돌아가는 터미널로 이동) ───
+    if (req.url === '/api/focus-terminal' && req.method === 'POST') {
+      try {
+        const data = await parseBody(req);
+        const session = (dashboardData.activeSessions || []).find(s => s.sessionId === data.sessionId);
+        if (!session) { res.writeHead(404); res.end('Not Found'); return; }
+
+        const tty = execSync(`ps -p ${session.pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
+        if (!tty || !/^ttys\d+$/.test(tty)) { res.writeHead(400); res.end('No TTY'); return; }
+
+        // osascript로 해당 TTY를 가진 Terminal 윈도우 포커스
+        const script = `tell application "Terminal"
+  activate
+  repeat with w in windows
+    repeat with t in tabs of w
+      if tty of t is "/dev/${tty}" then
+        set selected of t to true
+        set index of w to 1
+        return
+      end if
+    end repeat
+  end repeat
+end tell`;
+        try {
+          execSync(`osascript -e '${script.replace(/'/g, "'\\''")}'`, { timeout: 3000 });
+        } catch {
+          // iTerm 시도
+          try {
+            execSync(`osascript -e 'tell application "iTerm" to activate'`, { timeout: 3000 });
+          } catch {}
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, tty }));
+      } catch (e) {
+        res.writeHead(500); res.end(e.message);
+      }
+      return;
+    }
+
     // ─── AI 스킬 추천 ───
     if (req.url === '/api/recommend' && req.method === 'POST') {
       try {
