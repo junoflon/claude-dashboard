@@ -8,7 +8,11 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const DASHBOARD_URL = process.env.DASHBOARD_URL || 'http://localhost:3333';
+// 로컬 + 원격(Railway) 둘 다로 동기화
+const DASHBOARD_URLS = [
+  'http://localhost:3333',
+  process.env.DASHBOARD_URL,
+].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i);
 const SYNC_SECRET = process.env.SYNC_SECRET || 'change-me';
 const INTERVAL = 5_000;
 const CLAUDE_DIR = path.join(require('os').homedir(), '.claude');
@@ -274,21 +278,26 @@ async function sync() {
     });
     const history = getGlobalHistory();
 
-    const res = await fetch(`${DASHBOARD_URL}/api/sync`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: SYNC_SECRET, sessions: enriched, history })
-    });
-
-    const result = await res.json();
+    const body = JSON.stringify({ secret: SYNC_SECRET, sessions: enriched, history });
     const now = new Date().toLocaleTimeString('ko-KR');
+
+    // 모든 URL로 병렬 전송
+    const results = await Promise.allSettled(DASHBOARD_URLS.map(url =>
+      fetch(`${url}/api/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).then(r => r.json().then(j => ({ url, ...j })))
+    ));
+
+    const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
     const statuses = enriched.map(s => `${s.projectName}:${s.status || '?'}`).join(', ');
-    console.log(`[${now}] ${result.sessions} sessions | ${statuses}`);
+    console.log(`[${now}] ${enriched.length} sessions → ${ok}/${DASHBOARD_URLS.length} 서버 | ${statuses}`);
   } catch (e) {
     console.error(`Sync failed: ${e.message}`);
   }
 }
 
-console.log(`Claude Dashboard Sync Agent → ${DASHBOARD_URL}`);
+console.log(`Claude Dashboard Sync Agent → ${DASHBOARD_URLS.join(', ')}`);
 sync();
 setInterval(sync, INTERVAL);
