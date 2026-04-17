@@ -34,7 +34,8 @@ const server = http.createServer((req, res) => {
 
           for (const p of procs) {
             try {
-              execSync(`printf '1\\n' > /dev/${p.tty}`, { timeout: 2000 });
+              // Ink UI (raw mode) → \r (Enter) 전송
+              execSync(`python3 -c "import os; fd=os.open('/dev/${p.tty}',os.O_WRONLY|os.O_NONBLOCK); os.write(fd,b'\\r'); os.close(fd)"`, { timeout: 2000 });
               approved++;
             } catch {}
           }

@@ -651,21 +651,25 @@ GitHub 저장소 ${repo}의 코드를 수정해야 합니다.
       }
     }
 
-    // 방법 2: 로컬에서 직접 (Mac에서 server.js 돌릴 때)
+    // 방법 2: 로컬에서 직접 — python으로 Enter(\r) 전송 (Ink UI 호환)
     if (approved === 0) {
       try {
-        const psOut = execSync(`pgrep -x claude 2>/dev/null`, { encoding: 'utf8' }).trim();
-        if (psOut) {
-          const pids = psOut.split('\n').filter(Boolean);
-          for (const pid of pids) {
-            try {
-              const tty = execSync(`ps -p ${pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
-              if (tty && /^ttys\d+$/.test(tty)) {
-                execSync(`printf '1\\n' > /dev/${tty}`, { timeout: 2000 });
-                approved++;
-              }
-            } catch {}
-          }
+        // waiting 상태인 세션만 대상
+        const sessions = this.dashboardData.activeSessions || [];
+        const waiting = sessions.filter(s => s.status === 'waiting');
+        const targetPids = waiting.length > 0
+          ? waiting.map(s => s.pid)
+          : execSync(`pgrep -x claude 2>/dev/null`, { encoding: 'utf8' }).trim().split('\n').filter(Boolean);
+
+        for (const pid of targetPids) {
+          try {
+            const tty = execSync(`ps -p ${pid} -o tty= 2>/dev/null`, { encoding: 'utf8' }).trim();
+            if (tty && /^ttys\d+$/.test(tty)) {
+              // Ink UI는 raw mode → \r (Enter) 전송
+              execSync(`python3 -c "import os; fd=os.open('/dev/${tty}',os.O_WRONLY|os.O_NONBLOCK); os.write(fd,b'\\r'); os.close(fd)"`, { timeout: 2000 });
+              approved++;
+            }
+          } catch {}
         }
       } catch {}
     }
