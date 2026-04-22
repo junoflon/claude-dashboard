@@ -1341,7 +1341,7 @@ function switchView(view){
   document.querySelector('.content').scrollTop=0;
   // Lazy loads
   if(view==='office') renderOffice();
-  if(view==='skills') { if(!skillsLoaded) loadSkills(); renderCategories(); }
+  if(view==='skills') { fetchTools().then(()=>{ loadSkills(); renderCategories(); }); }
 }
 
 document.querySelectorAll('.nav-item').forEach(item=>{
@@ -1373,24 +1373,43 @@ function closeModal(btn){
   setTimeout(()=>overlay.remove(),150);
 }
 
-// ─── Skills ───
+// ─── Skills (동적으로 /api/tools에서 로드) ───
 let skillsLoaded=false;
-const SKILLS=[
-  'algorithmic-art','brand-guidelines','canvas-design','claude-api','deep-research-main',
-  'deep-research-query','doc-coauthoring','docs-guide-knowledge','docx','frontend-design',
-  'git-teacher-help','git-teacher-review','git-teacher-save','git-teacher-setup',
-  'git-teacher-status','git-teacher-upload','internal-comms','kkirikkiri','mcp-builder',
-  'nopal-orchestrate','nopal-setup','pdf','pptx','pumasi','show-me-the-prd',
-  'skill-creator','skillers-suda','slack-gif-creator','theme-factory','ui-ux-pro-max',
-  'vibe-sunsang-growth','vibe-sunsang-knowledge','vibe-sunsang-mentor','vibe-sunsang-onboard',
-  'vibe-sunsang-retro','vibeindex','web-artifacts-builder','webapp-testing','xlsx'
-];
-const AGENTS=['docs-guide','growth-analyst'];
-const COMMANDS=['deep-research','docs-guide','git-teacher','kkirikkiri','nopal','pumasi','show-me-the-prd','skillers-suda','vibe-sunsang'];
+let SKILLS=[], AGENTS=[], COMMANDS=[], PLUGINS_OFFICIAL=[], PLUGINS_GPTAKU=[], PLUGINS_BY_MP={}, HOOKS=[];
 
-const PLUGINS_OFFICIAL=['agent-sdk-dev','clangd-lsp','claude-code-setup','claude-md-management','code-review','code-simplifier','commit-commands','csharp-lsp','example-plugin','explanatory-output-style','feature-dev','frontend-design','gopls-lsp','hookify','jdtls-lsp','kotlin-lsp','learning-output-style','lua-lsp','math-olympiad','mcp-server-dev','php-lsp','playground','plugin-dev','pr-review-toolkit','pyright-lsp','ralph-loop','ruby-lsp','rust-analyzer-lsp','security-guidance','skill-creator','swift-lsp','typescript-lsp'];
-const PLUGINS_GPTAKU=['deep-research','docs-guide','git-teacher','kkirikkiri','nopal','pumasi','show-me-the-prd','skillers-suda','vibe-sunsang'];
-const HOOKS=['codex:SessionStart','codex:SessionEnd','codex:Stop','learning-output-style:SessionStart','security-guidance:PreToolUse','explanatory-output-style:SessionStart','ralph-loop:Stop','hookify:PreToolUse','hookify:PostToolUse','hookify:Stop','hookify:UserPromptSubmit','codex-cache:SessionStart','codex-cache:SessionEnd','codex-cache:Stop'];
+async function fetchTools() {
+  try {
+    const r = await fetch('/api/tools');
+    const d = await r.json();
+    SKILLS = d.skills || [];
+    AGENTS = d.agents || [];
+    COMMANDS = d.commands || [];
+    PLUGINS_BY_MP = d.plugins || {};
+    PLUGINS_OFFICIAL = PLUGINS_BY_MP['claude-plugins-official'] || [];
+    PLUGINS_GPTAKU = PLUGINS_BY_MP['gptaku_plugins'] || [];
+    HOOKS = d.hooks || [];
+    // 개요 카운트 업데이트
+    const sc = document.getElementById('skillCount'); if (sc) sc.textContent = SKILLS.length;
+    const pc = document.getElementById('pluginCount');
+    if (pc) pc.textContent = Object.values(PLUGINS_BY_MP).reduce((s,a)=>s+a.length,0);
+    // 사이드바 배지
+    const badge = document.querySelector('.nav-item[data-view="skills"] .badge');
+    if (badge) badge.textContent = (SKILLS.length + AGENTS.length + COMMANDS.length + Object.values(PLUGINS_BY_MP).reduce((s,a)=>s+a.length,0));
+    // 모달 데이터 재구성
+    rebuildModalData();
+  } catch (e) { console.error('fetchTools failed', e); }
+}
+function rebuildModalData(){
+  MODAL_DATA.agents.items = AGENTS.map(a=>({name:a,sub:'~/.claude/agents/'+a+'.md'}));
+  MODAL_DATA.skills.items = SKILLS.map(s=>({name:s,sub:'~/.claude/skills/'+s+'/'}));
+  MODAL_DATA.commands.items = COMMANDS.map(c=>({name:c,sub:'~/.claude/commands/'+c+'.md'}));
+  MODAL_DATA.hooks.items = HOOKS.map(h=>{const[p,t]=h.split(':');return{name:t||p,sub:'plugin: '+p}});
+  const pluginItems = [];
+  for (const [mp, list] of Object.entries(PLUGINS_BY_MP)) {
+    for (const p of list) pluginItems.push({name:p, sub:mp});
+  }
+  MODAL_DATA.plugins.items = pluginItems;
+}
 
 const MODAL_DATA={
   agents:{title:'에이전트',icon:'◎',iconBg:'var(--blue-bg)',iconColor:'var(--blue)',items:AGENTS.map(a=>({name:a,sub:'~/.claude/agents/'+a+'.md'}))},
@@ -1567,6 +1586,7 @@ async function refresh(){
 }
 
 refresh();setInterval(refresh,5000);
+fetchTools();setInterval(fetchTools,60000);
 
 // ─── Skill Recommendation ───
 const SKILL_CATS = {
@@ -1633,7 +1653,7 @@ function searchSkills() {
   // 2단계: AI 스마트 매칭 (항상 실행)
   btn.disabled = true;
   btn.textContent = '분석 중...';
-  const allSkills = Object.entries(SKILL_CATS).map(([c, d]) => `${c}: ${d.skills.join(', ')}`).join('\n');
+  const allSkills = Object.entries(SKILL_CATS).map(([c, d]) => `${c}: ${d.items.join(', ')}`).join('\n');
 
   fetch('/api/recommend', {
     method: 'POST',

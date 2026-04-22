@@ -243,6 +243,54 @@ function getProcessStatus(pid) {
   }
 }
 
+function getToolsInventory() {
+  const safeList = (dir, filter = () => true) => {
+    try { return fs.readdirSync(dir).filter(filter); } catch { return []; }
+  };
+  const skills = safeList(path.join(CLAUDE_DIR, 'skills'), f => !f.startsWith('.'))
+    .filter(f => { try { return fs.statSync(path.join(CLAUDE_DIR, 'skills', f)).isDirectory(); } catch { return false; } });
+  const agents = safeList(path.join(CLAUDE_DIR, 'agents'), f => f.endsWith('.md')).map(f => f.replace(/\.md$/, ''));
+  const commands = safeList(path.join(CLAUDE_DIR, 'commands'), f => f.endsWith('.md')).map(f => f.replace(/\.md$/, ''));
+
+  // 플러그인 마켓플레이스 스캔
+  const marketplacesDir = path.join(CLAUDE_DIR, 'plugins', 'marketplaces');
+  const plugins = {};
+  for (const mp of safeList(marketplacesDir)) {
+    const pluginsDir = path.join(marketplacesDir, mp, 'plugins');
+    const items = safeList(pluginsDir, f => !f.startsWith('.'))
+      .filter(f => { try { return fs.statSync(path.join(pluginsDir, f)).isDirectory(); } catch { return false; } });
+    if (items.length) plugins[mp] = items;
+  }
+
+  // 설치된 플러그인 (installed_plugins.json)
+  const installed = [];
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'plugins', 'installed_plugins.json'), 'utf8'));
+    for (const key of Object.keys(data.plugins || {})) installed.push(key);
+  } catch {}
+
+  // 훅: settings.json + plugin의 hooks
+  const hooks = [];
+  try {
+    const settings = JSON.parse(fs.readFileSync(path.join(CLAUDE_DIR, 'settings.json'), 'utf8'));
+    for (const event of Object.keys(settings.hooks || {})) {
+      hooks.push(`settings:${event}`);
+    }
+  } catch {}
+  // 각 마켓플레이스 플러그인의 hooks.json 스캔
+  for (const [mp, items] of Object.entries(plugins)) {
+    for (const p of items) {
+      const hooksFile = path.join(marketplacesDir, mp, 'plugins', p, 'hooks', 'hooks.json');
+      try {
+        const h = JSON.parse(fs.readFileSync(hooksFile, 'utf8'));
+        for (const event of Object.keys(h.hooks || h || {})) hooks.push(`${p}:${event}`);
+      } catch {}
+    }
+  }
+
+  return { skills, agents, commands, plugins, installed, hooks, scannedAt: Date.now() };
+}
+
 function getGlobalHistory() {
   const historyFile = path.join(CLAUDE_DIR, 'history.jsonl');
   try {
@@ -278,7 +326,8 @@ async function sync() {
     });
     const history = getGlobalHistory();
 
-    const body = JSON.stringify({ secret: SYNC_SECRET, sessions: enriched, history });
+    const tools = getToolsInventory();
+    const body = JSON.stringify({ secret: SYNC_SECRET, sessions: enriched, history, tools });
     const now = new Date().toLocaleTimeString('ko-KR');
 
     // 모든 URL로 병렬 전송

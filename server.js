@@ -40,7 +40,7 @@ ${error ? '<div class="error">비밀번호가 틀렸습니다</div>' : ''}
 }
 
 // ── Data store ──
-let dashboardData = { activeSessions: [], recentHistory: [], timestamp: 0 };
+let dashboardData = { activeSessions: [], recentHistory: [], tools: null, timestamp: 0 };
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -64,7 +64,12 @@ try {
 async function handleSync(req, res) {
   const data = await parseBody(req);
   if (data.secret !== SYNC_SECRET) { res.writeHead(403); res.end('Forbidden'); return; }
-  dashboardData = { activeSessions: data.sessions || [], recentHistory: data.history || [], timestamp: Date.now() };
+  dashboardData = {
+    activeSessions: data.sessions || [],
+    recentHistory: data.history || [],
+    tools: data.tools || dashboardData.tools || null,
+    timestamp: Date.now(),
+  };
   // 파일로 캐시 저장 (Mac 꺼져도 프로젝트 목록 유지)
   try { fs.writeFileSync(CACHE_FILE, JSON.stringify(dashboardData), 'utf8'); } catch {}
   res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -343,6 +348,39 @@ end tell`;
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ recommendation: null, error: e.message }));
       }
+      return;
+    }
+
+    if (req.url === '/api/tools') {
+      let tools = dashboardData.tools;
+      // 로컬 실행 시 ~/.claude 직접 스캔 (sync 전에도 최신 상태로 응답)
+      if (!tools || Date.now() - (tools.scannedAt || 0) > 60_000) {
+        try {
+          const home = require('os').homedir();
+          const claudeDir = path.join(home, '.claude');
+          const safeList = (dir, filter = () => true) => {
+            try { return fs.readdirSync(dir).filter(filter); } catch { return []; }
+          };
+          const isDir = (p) => { try { return fs.statSync(p).isDirectory(); } catch { return false; } };
+          if (fs.existsSync(claudeDir)) {
+            const skillsDir = path.join(claudeDir, 'skills');
+            const skills = safeList(skillsDir, f => !f.startsWith('.')).filter(f => isDir(path.join(skillsDir, f)));
+            const agents = safeList(path.join(claudeDir, 'agents'), f => f.endsWith('.md')).map(f => f.replace(/\.md$/, ''));
+            const commands = safeList(path.join(claudeDir, 'commands'), f => f.endsWith('.md')).map(f => f.replace(/\.md$/, ''));
+            const mpDir = path.join(claudeDir, 'plugins', 'marketplaces');
+            const plugins = {};
+            for (const mp of safeList(mpDir)) {
+              const pd = path.join(mpDir, mp, 'plugins');
+              const items = safeList(pd, f => !f.startsWith('.')).filter(f => isDir(path.join(pd, f)));
+              if (items.length) plugins[mp] = items;
+            }
+            tools = { skills, agents, commands, plugins, hooks: [], scannedAt: Date.now(), source: 'local-scan' };
+            dashboardData.tools = tools;
+          }
+        } catch {}
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(tools || { skills: [], agents: [], commands: [], plugins: {}, hooks: [] }));
       return;
     }
 
